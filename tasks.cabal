@@ -1,0 +1,26 @@
+Name:                tasks
+Version:             0.1
+Synopsis:            Manage a set of processes
+License:             BSD3
+Author:              David Fox <dsf@seereason.com>
+Maintainer:          David Fox <dsf@seereason.com>
+Copyright:           2014 David Fox, SeeReason Partners LLC
+Category:            System
+Build-type:          Simple
+Cabal-version:       >=1.9
+
+source-repository head
+    type:     darcs
+    location: http://src.seereason.com/tasks
+
+Library
+  Exposed-modules:     System.Tasks
+  Build-depends:       base             >= 4 && <5,
+                       mtl,
+                       process-listlike >= 0.9,
+                       containers, process, text
+
+Executable test-tasks
+  Main-Is: Main.hs
+  GHC-Options: -threaded
+  Build-Depends: base, containers, mtl, process, process-listlike, tasks, text
