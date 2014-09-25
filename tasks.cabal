@@ -9,18 +9,34 @@ Category:            System
 Build-type:          Simple
 Cabal-version:       >=1.9
 
+flag local-process-listlike
+   Description: Link directly to the source of the process-listlike library
+   Default: True
+   Manual: True
+
 source-repository head
     type:     darcs
     location: http://src.seereason.com/tasks
 
 Library
+  Hs-Source-Dirs:      .
   Exposed-modules:     System.Tasks
   Build-depends:       base             >= 4 && <5,
                        mtl,
-                       process-listlike >= 0.9,
                        containers, process, text
+  if flag(local-process-listlike)
+    Hs-Source-Dirs: ../process-listlike
+    Build-Depends: deepseq, ListLike, bytestring
+  else
+    Build-depends: process-listlike >= 0.9
 
 Executable test-tasks
+  Hs-Source-Dirs: .
   Main-Is: Main.hs
   GHC-Options: -threaded
-  Build-Depends: base, containers, mtl, process, process-listlike, tasks, text
+  Build-Depends: base, containers, mtl, process, text
+  if flag(local-process-listlike)
+    Hs-Source-Dirs: ../process-listlike
+    Build-Depends: deepseq, ListLike, bytestring
+  else
+    Build-depends: tasks, process-listlike >= 0.9
