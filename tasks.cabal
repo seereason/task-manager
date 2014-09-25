@@ -28,7 +28,7 @@ Library
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike, bytestring
   else
-    Build-depends: process-listlike >= 0.9
+    Build-depends: process-listlike >= 1.2
 
 Executable test-tasks
   Hs-Source-Dirs: .
@@ -39,4 +39,4 @@ Executable test-tasks
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike, bytestring
   else
-    Build-depends: tasks, process-listlike >= 0.9
+    Build-depends: tasks, process-listlike >= 1.2

@@ -35,6 +35,7 @@ import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys)
 import Data.Monoid
 import Data.Set (Set, fromList)
 import Data.Text.Lazy as Text (Text, pack)
+import Debug.Console (ePutStrLn)
 import System.Exit (ExitCode)
 import System.IO
 import System.IO.Unsafe
@@ -43,16 +44,6 @@ import System.Process.ListLike (ListLikePlus, Chunk(..), showCmdSpecForUser)
 import System.Process.ListLike.Ready (readProcessInterleaved)
 --import System.Process.Text.Lazy ()
 --import System.Process.ListLike.Ready (readProcessChunks)
-
-console :: String -> IO ()
-console = unsafePerformIO $ do
-  v <- newEmptyMVar
-  forkIO (loop v)
-  return (putMVar v)
-    where loop v = takeMVar v >>= hPutStr stderr >> loop v
-
-ePutStr s = liftIO (console s)
-ePutStrLn s = ePutStr (s <> "\n")
 
 -- Types describing messages between two components
 
@@ -217,7 +208,9 @@ process :: Show taskid => taskid -> MVar TaskTakes -> CreateProcess -> Text -> I
 process taskId taskTakes p input = do
   ePutStrLn $ "process " ++ show taskId ++ " starting"
   readProcessInterleaved (\ pid -> putMVar taskTakes (ProcessToTask (ProcessHandle pid))) p input >>=
-    mapM_ (\ x -> ePutStrLn ("process " ++ show taskId ++ " chunk: " ++ show x) >> putMVar taskTakes (ProcessToTask x))
+    mapM_ (\ x -> ePutStrLn ("task " ++ show taskId ++ " sends " ++ show (ProcessToTask x)) >>
+                  putMVar taskTakes (ProcessToTask x))
+
 --process taskId taskTakes cmd input = do
 --  ePutStrLn $ "process starting: " ++ show cmd
 --  p <- createProcess (cmd {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe})
