@@ -192,7 +192,8 @@ task taskId managerTakes taskTakes cmd input = do
           ManagerToTask SendTaskStatus -> putManager (ProcessStatus taskId st) >> loop
           ManagerToTask CancelTask ->
               do lift $ maybe (return ()) terminateProcess (processHandle st)
-                 putManager (ProcessFinished taskId)
+                 -- putManager (ProcessFinished taskId)
+                 loop
           ProcessToTask x@(Result _) -> putManager (ProcessToManager taskId x) -- Process is finished, so stop looping
           ProcessToTask x@(ProcessHandle pid) -> put (st {processHandle = Just pid}) >> putManager (ProcessToManager taskId x) >> loop
           ProcessToTask x -> putManager (ProcessToManager taskId x) >> loop
