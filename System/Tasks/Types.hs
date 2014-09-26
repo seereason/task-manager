@@ -80,7 +80,6 @@ data ManagerToTask
 
 data TaskToManager taskid
     = ProcessToManager taskid ProcessToTask
-    | ProcessFinished taskid
     deriving Show
 
 type ProcessToTask = Chunk Text
@@ -155,7 +154,6 @@ instance Pretty (PP ManagerToTask) where
 
 instance Show taskid => Pretty (PP (TaskToManager taskid)) where
     pPrint (PP (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> text (show x)
-    pPrint (PP (ProcessFinished i)) = text ("P" <> show i <> ": Finished")
 
 instance Pretty (PP TaskTakes) where
     pPrint (PP (ManagerToTask x)) = ppPrint x
