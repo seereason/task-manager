@@ -37,7 +37,7 @@ import System.IO
 import System.IO.Unsafe
 import System.Process (ProcessHandle, shell, proc, terminateProcess, CreateProcess(..), CmdSpec(..), createProcess, StdStream(CreatePipe))
 import System.Process.ListLike (ListLikePlus, Chunk(..), showCmdSpecForUser)
-import System.Process.ListLike.Ready (readProcessInterleaved)
+import System.Process.ListLike.Thread (readProcessInterleaved)
 import System.Tasks.Types
 import System.Tasks.Pretty (putMVar', takeMVar')
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
