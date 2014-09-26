@@ -19,8 +19,7 @@
 -- 'ShutDown' or 'SendTaskStatus'.
 
 module System.Tasks.Types
-    ( -- * Types
-      TopTakes(..)
+    ( TopTakes(..)
     , ManagerTakes(..)
     , TaskTakes(..)
     , TopToManager(..)
@@ -29,19 +28,12 @@ module System.Tasks.Types
     , TaskToManager(..)
     , ProcessToTask
     , ManagerStatus(..)
-    -- * Pretty Printing
-    , PP(PP)
-    , ppPrint
-    , ppDisplay
-    , MVarAction(Put, Take)
     ) where
 
-import Data.Monoid ((<>))
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
 import System.Process (CmdSpec, CreateProcess(cmdspec))
 import System.Process.ListLike (Chunk, showCmdSpecForUser)
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)
@@ -97,67 +89,3 @@ instance Show CmdSpec where
 
 instance Show CreateProcess where
     show x = "(CreateProcess " ++ show (cmdspec x) ++ ")"
-
--- Pretty printing
-
-newtype PP a = PP a
-
-ppPrint :: Pretty (PP a) => a -> Doc
-ppPrint = pPrint . PP
-
-ppDisplay :: Pretty (PP a) => a -> String
-ppDisplay = show . ppPrint
-
-topPrefix :: Doc
-topPrefix = text ""
-managerPrefix :: Doc
-managerPrefix = text "\t\t\t"
-taskPrefix :: Doc
-taskPrefix = text "\t\t\t\t\t\t"
-processPrefix :: Doc
-processPrefix = text "\t\t\t\t\t\t\t\t\t"
-
-data MVarAction = Put | Take deriving Show
-
-instance Show taskid => Pretty (PP (MVarAction, TopTakes taskid)) where
-    pPrint (PP (Take, x)) = topPrefix <> text "   " <> ppPrint x <> text " <-"
-    pPrint (PP (Put, x)) = managerPrefix <> text "<- " <> ppPrint x
-
-instance Show taskid => Pretty (PP (MVarAction, ManagerTakes taskid)) where
-    pPrint (PP (Take, x@(TopToManager _))) = managerPrefix <> text "-> " <> ppPrint x
-    pPrint (PP (Take, x@(TaskToManager _))) = managerPrefix <> text "   " <> ppPrint x <> text " <-"
-    pPrint (PP (Put, x@(TopToManager _))) = topPrefix <> text "   " <> ppPrint x <> text " ->"
-    pPrint (PP (Put, x@(TaskToManager _))) = taskPrefix <> text "<- " <> ppPrint x
-
-instance Pretty (PP (MVarAction, TaskTakes)) where
-    pPrint (PP (Take, x@(ManagerToTask _))) = taskPrefix <> text "-> " <> ppPrint x
-    pPrint (PP (Take, x@(ProcessToTask _))) = taskPrefix <> text "   " <> ppPrint x <> text " <-"
-    pPrint (PP (Put, x@(ManagerToTask _))) = managerPrefix <> text "   " <> ppPrint x <> text " ->"
-    pPrint (PP (Put, x@(ProcessToTask _))) = processPrefix <> text "<- " <> ppPrint x
-
-instance Show taskid => Pretty (PP (TopTakes taskid)) where
-    pPrint (PP (TopTakes x)) = ppPrint x
-
-instance Show taskid => Pretty (PP (TopToManager taskid)) where
-    pPrint (PP x) = text (show x)
-
-instance Show taskid => Pretty (PP (ManagerToTop taskid)) where
-    pPrint (PP (TaskToTop x)) = ppPrint x
-    pPrint (PP x) = text (show x)
-
-instance Show taskid => Pretty (PP (ManagerTakes taskid)) where
-    pPrint (PP (TopToManager x)) = ppPrint x
-    pPrint (PP (TaskToManager x)) = ppPrint x
-
-instance Pretty (PP ManagerToTask) where
-    pPrint (PP x) = text (show x)
-
-instance Show taskid => Pretty (PP (TaskToManager taskid)) where
-    pPrint (PP (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> text (show x)
-
-instance Pretty (PP TaskTakes) where
-    pPrint (PP (ManagerToTask x)) = ppPrint x
-    pPrint (PP (ProcessToTask x)) = ppPrint x
-
-instance Pretty (PP ProcessToTask) where
-    pPrint (PP x) = text (show x)

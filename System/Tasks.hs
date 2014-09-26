@@ -18,14 +18,8 @@
 -- 'ShutDown' or 'SendTaskStatus'.
 
 module System.Tasks
-    ( ManagerToTop(ManagerStatus, ManagerFinished)
-    , ManagerTakes(TopToManager)
-    , TopToManager(SendManagerStatus, ShutDown, StartTask, TopToTask)
-    , ManagerToTask(CancelTask)
-    , TaskTakes
-    , manager
-    , takeMVar'
-    , putMVar'
+    ( manager
+    , module System.Tasks.Types
     ) where
 
 import Control.Concurrent (forkIO, MVar, newEmptyMVar, putMVar, takeMVar)
@@ -45,10 +39,8 @@ import System.Process (ProcessHandle, shell, proc, terminateProcess, CreateProce
 import System.Process.ListLike (ListLikePlus, Chunk(..), showCmdSpecForUser)
 import System.Process.ListLike.Ready (readProcessInterleaved)
 import System.Tasks.Types
+import System.Tasks.Pretty (putMVar', takeMVar')
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
-
-takeMVar' v = takeMVar v >>= \ x -> ePutStrLn (ppDisplay (Take, x)) >> return x
-putMVar' v x = ePutStrLn (ppDisplay (Put, x)) >> putMVar v x
 
 data ManagerState taskid
     = ManagerState

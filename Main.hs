@@ -14,9 +14,10 @@ import System.IO
 import System.Process (CreateProcess, ProcessHandle, shell, proc, interruptProcessGroupOf, terminateProcess)
 import System.Process.ListLike (Chunk(..), readProcessChunks)
 import System.Process.Text.Lazy ()
-import System.Tasks.Types (TopTakes(..), ManagerToTop(..), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TaskTakes, PP(PP), ppPrint, ppDisplay)
-import System.Tasks (manager, takeMVar', putMVar')
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
+import System.Tasks (manager)
+import System.Tasks.Pretty (takeMVar', putMVar')
+import System.Tasks.Types (TopTakes(..), ManagerToTop(..), ManagerTakes(..),
+                           TopToManager(..), ManagerToTask(..))
 
 type TaskId = Integer
 
@@ -37,12 +38,9 @@ top topTakes = loop
     where
       loop = do
         msg <- takeMVar' topTakes
-        -- ePutStrLn (ppDisplay msg)
         case msg of
           TopTakes ManagerFinished -> return ()
-          TopTakes msg@(ManagerStatus tids mode) ->
-              do {- ePutStrLn ("top: " ++ show msg) -}
-                 loop
+          TopTakes msg@(ManagerStatus tids mode) -> loop
           _ -> loop
 
 keyboard :: (Show taskid, Read taskid) => MVar (ManagerTakes taskid) -> IO ()
