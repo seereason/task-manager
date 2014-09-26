@@ -11,7 +11,7 @@ Cabal-version:       >=1.9
 
 flag local-process-listlike
    Description: Link directly to the source of the process-listlike library
-   Default: True
+   Default: False
    Manual: True
 
 source-repository head
@@ -21,9 +21,10 @@ source-repository head
 Library
   Hs-Source-Dirs:      .
   Exposed-modules:     System.Tasks
+                       System.Tasks.Types
   Build-depends:       base             >= 4 && <5,
                        mtl,
-                       containers, process, text
+                       containers, prettyclass, process, text
   if flag(local-process-listlike)
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike, bytestring
@@ -34,7 +35,7 @@ Executable test-tasks
   Hs-Source-Dirs: .
   Main-Is: Main.hs
   GHC-Options: -threaded
-  Build-Depends: base, containers, mtl, process, text
+  Build-Depends: base, containers, mtl, prettyclass, process, text
   if flag(local-process-listlike)
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike, bytestring

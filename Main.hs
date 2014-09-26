@@ -14,12 +14,14 @@ import System.IO
 import System.Process (CreateProcess, ProcessHandle, shell, proc, interruptProcessGroupOf, terminateProcess)
 import System.Process.ListLike (Chunk(..), readProcessChunks)
 import System.Process.Text.Lazy ()
-import System.Tasks (TopTakes(ManagerStatus, ManagerFinished),
+import System.Tasks (ManagerToTop(ManagerStatus, ManagerFinished),
                      ManagerTakes(TopToManager),
                      TopToManager(SendManagerStatus, ShutDown, StartTask, TopToTask),
                      ManagerToTask(SendTaskStatus, CancelTask),
                      TaskTakes,
-                     manager)
+                     manager,
+                     PP(PP), ppPrint, ppDisplay)
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type TaskId = Integer
 
@@ -28,21 +30,25 @@ firstTaskId = 1
 
 main :: IO ()
 main = do
+  ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
   topTakes <- newEmptyMVar
   managerTakes <- newEmptyMVar
   forkIO $ manager firstTaskId topTakes managerTakes
   forkIO $ keyboard managerTakes
-  loop topTakes
+  top topTakes
+
+top :: Show TaskId => MVar (ManagerToTop TaskId) -> IO ()
+top topTakes = loop
     where
-      loop :: Show TaskId => MVar (TopTakes TaskId) -> IO ()
-      loop topTakes = do
-         msg <- takeMVar topTakes
-         ePutStrLn ("topTakes: " ++ show msg)
-         case msg of
-           ManagerFinished -> return ()
-           msg@(ManagerStatus tids mode) ->
-               ePutStrLn ("top: " ++ show msg) >> loop topTakes
-           _ -> loop topTakes
+      loop = do
+        msg <- takeMVar topTakes
+        ePutStrLn (ppDisplay msg)
+        case msg of
+          ManagerFinished -> return ()
+          msg@(ManagerStatus tids mode) ->
+              do {- ePutStrLn ("top: " ++ show msg) -}
+                 loop
+          _ -> loop
 
 keyboard :: (Show taskid, Read taskid) => MVar (ManagerTakes taskid) -> IO ()
 keyboard managerTakes =
