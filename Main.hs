@@ -57,7 +57,7 @@ keyboard managerTakes =
                -- Get process manager status
                "s" -> putMVar' managerTakes  (TopToManager SendManagerStatus) >> loop cmds
                -- Kill a task
-               ['k',d] | isDigit d -> putMVar' managerTakes  (TopToManager (TopToTask (read [d]) CancelTask)) >> loop cmds
+               ['k',d] | isDigit d -> putMVar' managerTakes  (TopToManager $ TopToTask $ CancelTask $ read [d]) >> loop cmds
                -- Initiate shutdown and exit keyboard loop
                "x" -> putMVar' managerTakes  (TopToManager ShutDown)
                -- error

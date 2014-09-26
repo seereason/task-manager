@@ -9,6 +9,7 @@ module System.Tasks.Pretty
 import Control.Concurrent (MVar, putMVar, takeMVar)
 import Data.Monoid ((<>))
 import Debug.Console (ePutStrLn)
+import System.Process.ListLike (CreateProcess(cmdspec), showCmdSpecForUser)
 import System.Tasks.Types
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
 
@@ -47,7 +48,7 @@ instance Show taskid => Pretty (PP (MVarAction, ManagerTakes taskid)) where
     pPrint (PP (Put, x@(TopToManager _))) = topPrefix <> text "   " <> ppPrint x <> text " ->"
     pPrint (PP (Put, x@(TaskToManager _))) = taskPrefix <> text "<- " <> ppPrint x
 
-instance Pretty (PP (MVarAction, TaskTakes)) where
+instance Show taskid => Pretty (PP (MVarAction, TaskTakes taskid)) where
     pPrint (PP (Take, x@(ManagerToTask _))) = taskPrefix <> text "-> " <> ppPrint x
     pPrint (PP (Take, x@(ProcessToTask _))) = taskPrefix <> text "   " <> ppPrint x <> text " <-"
     pPrint (PP (Put, x@(ManagerToTask _))) = managerPrefix <> text "   " <> ppPrint x <> text " ->"
@@ -57,6 +58,8 @@ instance Show taskid => Pretty (PP (TopTakes taskid)) where
     pPrint (PP (TopTakes x)) = ppPrint x
 
 instance Show taskid => Pretty (PP (TopToManager taskid)) where
+    pPrint (PP (StartTask p _input)) = text "sh: " <> ppPrint p
+    pPrint (PP (TopToTask x)) = ppPrint x
     pPrint (PP x) = text (show x)
 
 instance Show taskid => Pretty (PP (ManagerToTop taskid)) where
@@ -67,15 +70,18 @@ instance Show taskid => Pretty (PP (ManagerTakes taskid)) where
     pPrint (PP (TopToManager x)) = ppPrint x
     pPrint (PP (TaskToManager x)) = ppPrint x
 
-instance Pretty (PP ManagerToTask) where
+instance Show taskid => Pretty (PP (ManagerToTask taskid)) where
     pPrint (PP x) = text (show x)
 
 instance Show taskid => Pretty (PP (TaskToManager taskid)) where
     pPrint (PP (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> text (show x)
 
-instance Pretty (PP TaskTakes) where
+instance Show taskid => Pretty (PP (TaskTakes taskid)) where
     pPrint (PP (ManagerToTask x)) = ppPrint x
     pPrint (PP (ProcessToTask x)) = ppPrint x
 
 instance Pretty (PP ProcessToTask) where
     pPrint (PP x) = text (show x)
+
+instance Pretty (PP CreateProcess) where
+    pPrint (PP x) = text (showCmdSpecForUser (cmdspec x))

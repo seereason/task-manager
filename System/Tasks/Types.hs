@@ -32,16 +32,16 @@ module System.Tasks.Types
 
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
-import System.Process (CmdSpec, CreateProcess(cmdspec))
-import System.Process.ListLike (Chunk, showCmdSpecForUser)
+import System.Process (CmdSpec, CreateProcess(..), StdStream(..), CmdSpec(..))
+import System.Process.ListLike (Chunk)
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)
     | TaskToManager (TaskToManager taskid)
     deriving Show
 
-data TaskTakes
-    = ManagerToTask ManagerToTask
+data TaskTakes taskid
+    = ManagerToTask (ManagerToTask taskid)
     | ProcessToTask ProcessToTask
     deriving Show
 
@@ -53,8 +53,12 @@ data TopToManager taskid
     | SendManagerStatus
     | ShutDown
     | SendTaskStatus taskid
-    | TopToTask taskid ManagerToTask
+    | TopToTask (ManagerToTask taskid)
     deriving Show
+
+deriving instance Show CreateProcess
+deriving instance Show CmdSpec
+deriving instance Show StdStream
 
 newtype TopTakes taskid = TopTakes (ManagerToTop taskid) deriving Show
 
@@ -66,8 +70,8 @@ data ManagerToTop taskid
     | TaskToTop (TaskToManager taskid)
     deriving Show
 
-data ManagerToTask
-    = CancelTask
+data ManagerToTask taskid
+    = CancelTask taskid
     deriving (Show, Eq)
 
 data TaskToManager taskid
@@ -83,9 +87,3 @@ data ManagerStatus
     = Running'
     | Exiting'
     deriving (Show, Eq)
-
-instance Show CmdSpec where
-    show x = "(CmdSpec " ++ showCmdSpecForUser x ++ ")"
-
-instance Show CreateProcess where
-    show x = "(CreateProcess " ++ show (cmdspec x) ++ ")"
