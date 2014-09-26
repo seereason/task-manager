@@ -14,13 +14,8 @@ import System.IO
 import System.Process (CreateProcess, ProcessHandle, shell, proc, interruptProcessGroupOf, terminateProcess)
 import System.Process.ListLike (Chunk(..), readProcessChunks)
 import System.Process.Text.Lazy ()
-import System.Tasks (ManagerToTop(ManagerStatus, ManagerFinished),
-                     ManagerTakes(TopToManager),
-                     TopToManager(SendManagerStatus, ShutDown, StartTask, TopToTask),
-                     ManagerToTask(SendTaskStatus, CancelTask),
-                     TaskTakes,
-                     manager,
-                     PP(PP), ppPrint, ppDisplay)
+import System.Tasks.Types (TopTakes(..), ManagerToTop(..), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TaskTakes, PP(PP), ppPrint, ppDisplay)
+import System.Tasks (manager, takeMVar', putMVar')
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 type TaskId = Integer
@@ -37,15 +32,15 @@ main = do
   forkIO $ keyboard managerTakes
   top topTakes
 
-top :: Show TaskId => MVar (ManagerToTop TaskId) -> IO ()
+top :: Show TaskId => MVar (TopTakes TaskId) -> IO ()
 top topTakes = loop
     where
       loop = do
-        msg <- takeMVar topTakes
-        ePutStrLn (ppDisplay msg)
+        msg <- takeMVar' topTakes
+        -- ePutStrLn (ppDisplay msg)
         case msg of
-          ManagerFinished -> return ()
-          msg@(ManagerStatus tids mode) ->
+          TopTakes ManagerFinished -> return ()
+          TopTakes msg@(ManagerStatus tids mode) ->
               do {- ePutStrLn ("top: " ++ show msg) -}
                  loop
           _ -> loop
@@ -58,15 +53,15 @@ keyboard managerTakes =
           do input <- getLine
              case input of
                -- Start a new task
-               "t" -> putMVar managerTakes (TopToManager (StartTask cmd empty)) >> loop next
+               "t" -> putMVar' managerTakes (TopToManager (StartTask cmd empty)) >> loop next
                -- Get the status of a task
-               ['s',d] | isDigit d -> putMVar managerTakes  (TopToManager (TopToTask (read [d]) SendTaskStatus)) >> loop cmds
+               ['s',d] | isDigit d -> putMVar' managerTakes (TopToManager (SendTaskStatus (read [d]))) >> loop cmds
                -- Get process manager status
-               "s" -> putMVar managerTakes  (TopToManager SendManagerStatus) >> loop cmds
+               "s" -> putMVar' managerTakes  (TopToManager SendManagerStatus) >> loop cmds
                -- Kill a task
-               ['k',d] | isDigit d -> putMVar managerTakes  (TopToManager (TopToTask (read [d]) CancelTask)) >> loop cmds
+               ['k',d] | isDigit d -> putMVar' managerTakes  (TopToManager (TopToTask (read [d]) CancelTask)) >> loop cmds
                -- Initiate shutdown and exit keyboard loop
-               "x" -> putMVar managerTakes  (TopToManager ShutDown)
+               "x" -> putMVar' managerTakes  (TopToManager ShutDown)
                -- error
                x -> ePutStrLn "runKeyboard - expected: t, s, s<digit>, k<digit>, or x" >> loop cmds
 

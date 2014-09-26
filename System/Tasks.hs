@@ -21,10 +21,11 @@ module System.Tasks
     ( ManagerToTop(ManagerStatus, ManagerFinished)
     , ManagerTakes(TopToManager)
     , TopToManager(SendManagerStatus, ShutDown, StartTask, TopToTask)
-    , ManagerToTask(SendTaskStatus, CancelTask)
+    , ManagerToTask(CancelTask)
     , TaskTakes
     , manager
-    , PP(PP), ppPrint, ppDisplay
+    , takeMVar'
+    , putMVar'
     ) where
 
 import Control.Concurrent (forkIO, MVar, newEmptyMVar, putMVar, takeMVar)
@@ -32,7 +33,7 @@ import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, lift, liftIO)
 import qualified Data.ByteString.Lazy as L
 import Data.List (intercalate)
-import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys)
+import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (Set, fromList)
 import Data.Text.Lazy as Text (Text, pack)
@@ -46,6 +47,9 @@ import System.Process.ListLike.Ready (readProcessInterleaved)
 import System.Tasks.Types
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
 
+takeMVar' v = takeMVar v >>= \ x -> ePutStrLn (ppDisplay (Take, x)) >> return x
+putMVar' v x = ePutStrLn (ppDisplay (Put, x)) >> putMVar v x
+
 data ManagerState taskid
     = ManagerState
       { managerStatus :: ManagerStatus
@@ -53,7 +57,7 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar TaskTakes)
       }
 
-manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) => taskid -> MVar (ManagerToTop taskid) -> MVar (ManagerTakes taskid) -> IO ()
+manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) => taskid -> MVar (TopTakes taskid) -> MVar (ManagerTakes taskid) -> IO ()
 manager firstTaskId topTakes managerTakes = do
   evalStateT loop (ManagerState {managerStatus = Running', nextTaskId = firstTaskId, mvarMap = mempty})
     where
@@ -61,40 +65,55 @@ manager firstTaskId topTakes managerTakes = do
       loop = do
         st <- get
         case (managerStatus st, Map.null (mvarMap st)) of
-          (Exiting', True) -> lift $ putMVar topTakes ManagerFinished
+          (Exiting', True) -> lift $ putMVar' topTakes (TopTakes ManagerFinished)
           _ -> do
-               msg <- lift $ takeMVar managerTakes
-               ePutStrLn (ppDisplay msg)
+               msg <- lift $ takeMVar' managerTakes
+               -- ePutStrLn (ppDisplay msg)
                case msg of
                  TopToManager (StartTask cmd input) -> do -- Start a new task
                    taskTakes <- lift newEmptyMVar
                    _tid <- lift $ forkIO $ task (nextTaskId st) managerTakes taskTakes cmd input
                    put (st {nextTaskId = succ (nextTaskId st), mvarMap = Map.insert (nextTaskId st) taskTakes (mvarMap st)})
+                   -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
-                   lift $ putMVar topTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st))
+                   lift $ putMVar' topTakes (TopTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st)))
                  TopToManager ShutDown -> do -- Tell all the tasks to shut down
-                   lift $ mapM_ (\ (_, taskTakes) -> putMVar taskTakes (ManagerToTask CancelTask)) (Map.toList (mvarMap st))
+                   lift $ mapM_ (\ (_, taskTakes) -> putMVar' taskTakes (ManagerToTask CancelTask)) (Map.toList (mvarMap st))
                    put (st {managerStatus = Exiting'})
 
+                 TopToManager (SendTaskStatus taskId) -> do
+                   lift $ putMVar' topTakes (TopTakes (TaskStatus taskId (Map.member taskId (mvarMap st))))
                  TopToManager (TopToTask taskId msg') -> do -- Forward some other message to a task
                    case Map.lookup taskId (mvarMap st) of
-                     Just taskTakes -> lift $ putMVar taskTakes (ManagerToTask msg')
-                     Nothing -> lift $ putMVar topTakes (NoSuchTask taskId)
+                     Just taskTakes -> lift $ putMVar' taskTakes (ManagerToTask msg')
+                     Nothing -> lift $ putMVar' topTakes (TopTakes (NoSuchTask taskId))
 
                  TaskToManager (ProcessToManager taskId (Result code)) -> do
                    -- A process finished - remove it from the process map
-                   lift $ putMVar topTakes (TaskToTop (ProcessToManager taskId (Result code)))
+                   lift $ putMVar' topTakes (TopTakes (TaskToTop (ProcessToManager taskId (Result code))))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
-
-                 TaskToManager (ProcessStatus taskId status) -> do
-                   -- Insert the process handle into the task status
-                   lift $ putMVar topTakes (TaskToTop (ProcessStatus taskId status))
 
                  TaskToManager msg' -> do
                    -- Forward messages to top
-                   lift $ putMVar topTakes (TaskToTop msg')
+                   lift $ putMVar' topTakes (TopTakes (TaskToTop msg'))
 
                loop
+
+
+data TaskState
+    = TaskState
+      { processStatus :: ProcessStatus
+      , processHandle :: Maybe ProcessHandle
+      -- ^ This is not available until the process sends it
+      -- back to the task manager after being started.
+      } deriving Show
+
+-- | A task can have two statuses - either it is running, or it has
+-- been asked to terminate (and is still running.)
+data ProcessStatus
+    = Running
+    | Exiting
+    deriving (Show, Eq)
 
 -- | Manage a single task.  This is a wrapper around a process that
 -- can do status inquiries, tell the process to terminate, notice the
@@ -105,20 +124,20 @@ manager firstTaskId topTakes managerTakes = do
 task :: (Show taskid, Read taskid, ListLikePlus a c, a ~ Text) =>
         taskid -> MVar (ManagerTakes taskid) -> MVar TaskTakes -> CreateProcess -> a -> IO ()
 task taskId managerTakes taskTakes cmd input = do
-  ePutStrLn $ "\t\t\t\t" ++ show cmd
+  -- ePutStrLn $ "\t\t\t\t" ++ show cmd
   -- hs@(_, _, _, pid) <- createProcess (cmd {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe })
   forkIO $ process taskId taskTakes cmd input
-  evalStateT loop (TaskStatus {processStatus = Running, processHandle = Nothing})
+  evalStateT loop (TaskState {processStatus = Running, processHandle = Nothing})
     where
       -- Read and send messages until the process sends a result
-      loop :: StateT TaskStatus IO ()
+      loop :: StateT TaskState IO ()
       loop = do
         st <- get
         ePutStrLn $ "\t\t\t" ++ show taskId ++ "\twaiting"
-        msg <- lift $ takeMVar taskTakes
-        ePutStrLn $ ppDisplay msg
+        msg <- lift $ takeMVar' taskTakes
+        -- ePutStrLn $ ppDisplay msg
         case msg of
-          ManagerToTask SendTaskStatus -> putManager (ProcessStatus taskId st) >> loop
+          -- ManagerToTask SendTaskStatus -> putManager (ProcessStatus taskId st) >> loop
           ManagerToTask CancelTask ->
               do lift $ maybe (return ()) terminateProcess (processHandle st)
                  -- putManager (ProcessFinished taskId)
@@ -128,18 +147,18 @@ task taskId managerTakes taskTakes cmd input = do
           ProcessToTask x -> putManager (ProcessToManager taskId x) >> loop
 
       putManager msg = do
-        ePutStrLn $ ppDisplay msg
-        lift $ putMVar managerTakes (TaskToManager msg)
+        -- ePutStrLn $ ppDisplay msg
+        lift $ putMVar' managerTakes (TaskToManager msg)
 
 taskTest = newEmptyMVar >>= \ v1 -> newEmptyMVar >>= \ v2 -> task 1 v1 v2 (proc "oneko" []) (Text.pack "")
 
 -- | A process only sends process output.
 process :: Show taskid => taskid -> MVar TaskTakes -> CreateProcess -> Text -> IO ()
 process taskId taskTakes p input = do
-  ePutStrLn $ "\t\t\t\t\t\t" ++ show taskId ++ " starting"
-  readProcessInterleaved (\ pid -> putMVar taskTakes (ProcessToTask (ProcessHandle pid))) p input >>=
-    mapM_ (\ x -> ePutStrLn (ppDisplay (ProcessToTask x)) >>
-                  putMVar taskTakes (ProcessToTask x))
+  -- ePutStrLn $ "\t\t\t\t\t\t" ++ show taskId ++ " starting"
+  readProcessInterleaved (\ pid -> putMVar' taskTakes (ProcessToTask (ProcessHandle pid))) p input >>=
+    mapM_ (\ x -> -- ePutStrLn (ppDisplay (ProcessToTask x)) >>
+                  putMVar' taskTakes (ProcessToTask x))
 
 --process taskId taskTakes cmd input = do
 --  ePutStrLn $ "process starting: " ++ show cmd

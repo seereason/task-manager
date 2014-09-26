@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 -- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
 -- started, their status can be queried, and they can be cancelled.
 --
@@ -20,7 +20,7 @@
 
 module System.Tasks.Types
     ( -- * Types
-      TopTakes
+      TopTakes(..)
     , ManagerTakes(..)
     , TaskTakes(..)
     , TopToManager(..)
@@ -29,22 +29,19 @@ module System.Tasks.Types
     , TaskToManager(..)
     , ProcessToTask
     , ManagerStatus(..)
-    , TaskStatus(..)
-    , ProcessStatus(..)
     -- * Pretty Printing
     , PP(PP)
     , ppPrint
     , ppDisplay
+    , MVarAction(Put, Take)
     ) where
 
 import Data.Monoid ((<>))
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
-import System.Process (CmdSpec, CreateProcess(cmdspec), ProcessHandle)
+import System.Process (CmdSpec, CreateProcess(cmdspec))
 import System.Process.ListLike (Chunk, showCmdSpecForUser)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
-
-type TopTakes = ManagerToTop
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)
@@ -63,24 +60,26 @@ data TopToManager taskid
     = StartTask CreateProcess Text
     | SendManagerStatus
     | ShutDown
+    | SendTaskStatus taskid
     | TopToTask taskid ManagerToTask
     deriving Show
 
+newtype TopTakes taskid = TopTakes (ManagerToTop taskid) deriving Show
+
 data ManagerToTop taskid
-    = ManagerFinished
-    | ManagerStatus (Set taskid) ManagerStatus
-    | NoSuchTask taskid
+    = ManagerFinished -- ^ (Eventual) response to ShutDown
+    | ManagerStatus (Set taskid) ManagerStatus -- ^ Response to SendManagerStatus
+    | NoSuchTask taskid -- ^ Possible response to TopToTask (which currently can only be CancelTask)
+    | TaskStatus taskid Bool -- ^ Response to SendTaskStatus
     | TaskToTop (TaskToManager taskid)
     deriving Show
 
 data ManagerToTask
-    = SendTaskStatus
-    | CancelTask
+    = CancelTask
     deriving (Show, Eq)
 
 data TaskToManager taskid
     = ProcessToManager taskid ProcessToTask
-    | ProcessStatus taskid TaskStatus
     | ProcessFinished taskid
     deriving Show
 
@@ -92,21 +91,6 @@ type ProcessToTask = Chunk Text
 data ManagerStatus
     = Running'
     | Exiting'
-    deriving (Show, Eq)
-
-data TaskStatus
-    = TaskStatus
-      { processStatus :: ProcessStatus
-      , processHandle :: Maybe ProcessHandle
-      -- ^ This is not available until the process sends it
-      -- back to the task manager after being started.
-      } deriving Show
-
--- | A task can have two statuses - either it is running, or it has
--- been asked to terminate (and is still running.)
-data ProcessStatus
-    = Running
-    | Exiting
     deriving (Show, Eq)
 
 instance Show CmdSpec where
@@ -125,32 +109,57 @@ ppPrint = pPrint . PP
 ppDisplay :: Pretty (PP a) => a -> String
 ppDisplay = show . ppPrint
 
+topPrefix :: Doc
 topPrefix = text ""
-managerPrefix = text "\t\t"
-taskPrefix = text "\t\t\t\t"
-processPrefix = text "\t\t\t\t\t\t"
+managerPrefix :: Doc
+managerPrefix = text "\t\t\t"
+taskPrefix :: Doc
+taskPrefix = text "\t\t\t\t\t\t"
+processPrefix :: Doc
+processPrefix = text "\t\t\t\t\t\t\t\t\t"
+
+data MVarAction = Put | Take deriving Show
+
+instance Show taskid => Pretty (PP (MVarAction, TopTakes taskid)) where
+    pPrint (PP (Take, x)) = topPrefix <> text "   " <> ppPrint x <> text " <-"
+    pPrint (PP (Put, x)) = managerPrefix <> text "<- " <> ppPrint x
+
+instance Show taskid => Pretty (PP (MVarAction, ManagerTakes taskid)) where
+    pPrint (PP (Take, x@(TopToManager _))) = managerPrefix <> text "-> " <> ppPrint x
+    pPrint (PP (Take, x@(TaskToManager _))) = managerPrefix <> text "   " <> ppPrint x <> text " <-"
+    pPrint (PP (Put, x@(TopToManager _))) = topPrefix <> text "   " <> ppPrint x <> text " ->"
+    pPrint (PP (Put, x@(TaskToManager _))) = taskPrefix <> text "<- " <> ppPrint x
+
+instance Pretty (PP (MVarAction, TaskTakes)) where
+    pPrint (PP (Take, x@(ManagerToTask _))) = taskPrefix <> text "-> " <> ppPrint x
+    pPrint (PP (Take, x@(ProcessToTask _))) = taskPrefix <> text "   " <> ppPrint x <> text " <-"
+    pPrint (PP (Put, x@(ManagerToTask _))) = managerPrefix <> text "   " <> ppPrint x <> text " ->"
+    pPrint (PP (Put, x@(ProcessToTask _))) = processPrefix <> text "<- " <> ppPrint x
+
+instance Show taskid => Pretty (PP (TopTakes taskid)) where
+    pPrint (PP (TopTakes x)) = ppPrint x
 
 instance Show taskid => Pretty (PP (TopToManager taskid)) where
-    pPrint (PP x) = topPrefix <> text (show x)
+    pPrint (PP x) = text (show x)
 
 instance Show taskid => Pretty (PP (ManagerToTop taskid)) where
     pPrint (PP (TaskToTop x)) = ppPrint x
-    pPrint (PP x) = topPrefix <> text (show x)
+    pPrint (PP x) = text (show x)
 
 instance Show taskid => Pretty (PP (ManagerTakes taskid)) where
     pPrint (PP (TopToManager x)) = ppPrint x
     pPrint (PP (TaskToManager x)) = ppPrint x
 
 instance Pretty (PP ManagerToTask) where
-    pPrint (PP x) = managerPrefix <> text (show x)
+    pPrint (PP x) = text (show x)
 
 instance Show taskid => Pretty (PP (TaskToManager taskid)) where
-    pPrint (PP (ProcessToManager i x)) = ppPrint x
-    pPrint (PP x) = taskPrefix <> text "<-" <> ppPrint x
+    pPrint (PP (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> text (show x)
+    pPrint (PP (ProcessFinished i)) = text ("P" <> show i <> ": Finished")
 
 instance Pretty (PP TaskTakes) where
     pPrint (PP (ManagerToTask x)) = ppPrint x
     pPrint (PP (ProcessToTask x)) = ppPrint x
 
 instance Pretty (PP ProcessToTask) where
-    pPrint (PP x) = processPrefix <> text (show x)
+    pPrint (PP x) = text (show x)
