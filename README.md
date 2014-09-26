@@ -22,28 +22,28 @@ that is using the task manager "Top":
 
 	+-----------------------+
 	|         Top           |  type TopTakes = ManagerToTop
-        +-----------------------+
-             |            ^
+	+-----------------------+
+	     |            ^
 	     |            |
 	TopToManager ManagerToTop
-             |            |
-             v            |
+	     |            |
+	     v            |
 	+-----------------------+
-        |       Manager         |  data ManagerTakes = TopToManager | TaskToManager
+	|       Manager         |  data ManagerTakes = TopToManager | TaskToManager
 	+-----------------------+
-             |              ^
-             |              |
-        ManagerToTask TaskToManager
-             |              |
-             v              |
+	     |              ^
+	     |              |
+	ManagerToTask TaskToManager
+	     |              |
+	     v              |
 	+-----------------------+
-        |        Task N         |  data TaskTakes = ManagerToTask | ProcessToTask
+	|        Task N         |  data TaskTakes = ManagerToTask | ProcessToTask
 	+-----------------------+
-             |              ^
-             |              |
-        TaskToProcess ProcessToTask
-             |              |
-             v              |
+	     |              ^
+	     |              |
+	TaskToProcess ProcessToTask
+	     |              |
+	     v              |
 	+-----------------------+
-        |       Process N       |  type ProcessTakes = TaskToProcess
+	|       Process N       |  type ProcessTakes = TaskToProcess
 	+-----------------------+
