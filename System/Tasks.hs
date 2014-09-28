@@ -30,7 +30,8 @@ import System.Tasks.Pretty (putMVar, takeMVar)
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 import Control.Monad.State (StateT, evalStateT, get, put)
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (MonadIO, liftIO)
+import Data.Default (Default, def)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
@@ -41,6 +42,35 @@ import System.Process.ListLike (ListLikePlus, Chunk(..))
 import System.Process.ListLike.Thread (readProcessInterleaved)
 import System.Tasks.Types
 
+manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid, Default taskid) =>
+           (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
+        -> (m (ManagerTakes taskid))  -- ^ return the next message to send to the task manager
+        -> (TopTakes taskid -> IO ()) -- ^ handle a message delivered by the task manager
+        -> IO ()
+manager runner putter taker = do
+  topTakes <- newEmptyMVar
+  managerTakes <- newEmptyMVar
+  -- The reason I use succ def instead of def is so that the first
+  -- task will be 1 rather than 0 if taskid is an Integral.
+  forkIO $ managerLoop (succ def) topTakes managerTakes -- run messages between the task manager and the tasks
+  forkIO $ takeLoop topTakes                            -- messages going to the output device
+  runner (putLoop managerTakes)                         -- messages coming from the input device
+    where
+      takeLoop topTakes =
+          do msg <- takeMVar topTakes
+             taker msg
+             case msg of
+               TopTakes ManagerFinished -> return ()
+               _ -> takeLoop topTakes
+
+      putLoop :: MVar (ManagerTakes taskid) -> m ()
+      putLoop managerTakes =
+          do msg <- putter
+             liftIO $ putMVar managerTakes msg
+             case msg of
+               TopToManager ShutDown -> return ()
+               _ -> putLoop managerTakes
+
 data ManagerState taskid
     = ManagerState
       { managerStatus :: ManagerStatus
@@ -48,12 +78,12 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
-manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
-           taskid
-        -> MVar (TopTakes taskid)
-        -> MVar (ManagerTakes taskid)
-        -> IO ()
-manager firstTaskId topTakes managerTakes = do
+managerLoop :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
+               taskid
+            -> MVar (TopTakes taskid)
+            -> MVar (ManagerTakes taskid)
+            -> IO ()
+managerLoop firstTaskId topTakes managerTakes = do
 #if DEBUG
   ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
 #endif

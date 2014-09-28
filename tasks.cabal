@@ -28,7 +28,7 @@ Library
   Exposed-modules:     System.Tasks
                        System.Tasks.Pretty
                        System.Tasks.Types
-  Build-depends:       base >= 4 && <5, bytestring, containers, mtl, prettyclass, process, text
+  Build-depends:       base >= 4 && <5, bytestring, containers, data-default, mtl, prettyclass, process, text
   if flag(local-process-listlike)
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike
@@ -41,7 +41,7 @@ Executable test-tasks
   Hs-Source-Dirs: .
   Main-Is: Main.hs
   GHC-Options: -threaded
-  Build-Depends: base, bytestring, containers, mtl, prettyclass, process, text
+  Build-Depends: base >= 4, bytestring, containers, data-default, mtl, process, tasks, text
   if flag(local-process-listlike)
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike
