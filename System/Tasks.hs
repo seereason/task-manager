@@ -54,6 +54,9 @@ manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
         -> MVar (ManagerTakes taskid)
         -> IO ()
 manager firstTaskId topTakes managerTakes = do
+#if DEBUG
+  ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
+#endif
   evalStateT loop (ManagerState {managerStatus = Running', nextTaskId = firstTaskId, mvarMap = mempty})
     where
       loop :: StateT (ManagerState taskid) IO ()
