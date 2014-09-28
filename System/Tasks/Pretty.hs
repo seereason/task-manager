@@ -2,11 +2,13 @@
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 module System.Tasks.Pretty
-    ( takeMVar'
-    , putMVar'
+    ( PP(PP)
+    , MVarAction
+    , System.Tasks.Pretty.takeMVar
+    , System.Tasks.Pretty.putMVar
     ) where
 
-import Control.Concurrent (MVar, putMVar, takeMVar)
+import Control.Concurrent as C (MVar, putMVar, takeMVar)
 import Data.Monoid ((<>))
 import Debug.Console (ePutStrLn)
 import System.Process.ListLike (CreateProcess(cmdspec), showCmdSpecForUser)
@@ -30,13 +32,16 @@ taskPrefix = text "\t\t\t\t\t\t"
 processPrefix :: Doc
 processPrefix = text "\t\t\t\t\t\t\t\t\t"
 
+-- Used to format the progress messages - Take has an incoming arrow,
+-- put has an outgoing arrow.
 data MVarAction = Put | Take deriving Show
 
-takeMVar' :: Pretty (PP (MVarAction, a)) => MVar a -> IO a
-takeMVar' v = takeMVar v >>= \ x -> ePutStrLn (ppDisplay (Take, x)) >> return x
+-- Versions of takeMVar and putMVar that pretty print debugging output.
+takeMVar :: Pretty (PP (MVarAction, a)) => MVar a -> IO a
+takeMVar v = C.takeMVar v >>= \ x -> ePutStrLn (ppDisplay (Take, x)) >> return x
 
-putMVar' :: Pretty (PP (MVarAction, a)) => MVar a -> a -> IO ()
-putMVar' v x = ePutStrLn (ppDisplay (Put, x)) >> putMVar v x
+putMVar :: Pretty (PP (MVarAction, a)) => MVar a -> a -> IO ()
+putMVar v x = ePutStrLn (ppDisplay (Put, x)) >> C.putMVar v x
 
 instance Show taskid => Pretty (PP (MVarAction, TopTakes taskid)) where
     pPrint (PP (Take, x)) = topPrefix <> text "   " <> ppPrint x <> text " <-"

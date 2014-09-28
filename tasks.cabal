@@ -14,6 +14,11 @@ flag local-process-listlike
    Default: False
    Manual: True
 
+flag debug-output
+   Description: Write output that illustrates the message passing
+   Default: False
+   Manual: True
+
 source-repository head
     type:     darcs
     location: http://src.seereason.com/tasks
@@ -28,7 +33,9 @@ Library
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: process-listlike >= 1.2
+    Build-depends: process-listlike >= 1.3
+  if flag(debug-output)
+    GHC-Options: -DDEBUG=1
 
 Executable test-tasks
   Hs-Source-Dirs: .
@@ -39,4 +46,6 @@ Executable test-tasks
     Hs-Source-Dirs: ../process-listlike
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-listlike >= 1.2
+    Build-depends: tasks, process-listlike >= 1.3
+  if flag(debug-output)
+    GHC-Options: -DDEBUG=1

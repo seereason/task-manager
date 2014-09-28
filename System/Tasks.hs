@@ -1,4 +1,5 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances, UndecidableInstances #-}
+{-# OPTIONS_GHC -Wall #-}
 -- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
 -- started, their status can be queried, and they can be cancelled.
 --
@@ -22,25 +23,23 @@ module System.Tasks
     , module System.Tasks.Types
     ) where
 
-import Control.Concurrent (forkIO, MVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent (forkIO, MVar, newEmptyMVar)
+#if DEBUG
+import System.Tasks.Pretty (putMVar, takeMVar)
+#else
+import Control.Concurrent (putMVar, takeMVar)
+#endif
 import Control.Monad.State (StateT, evalStateT, get, put)
-import Control.Monad.Trans (MonadIO, lift, liftIO)
-import qualified Data.ByteString.Lazy as L
-import Data.List (intercalate)
+import Control.Monad.Trans (liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
-import Data.Set (Set, fromList)
-import Data.Text.Lazy as Text (Text, pack)
-import Debug.Console (ePutStrLn)
-import System.Exit (ExitCode)
-import System.IO
-import System.IO.Unsafe
-import System.Process (ProcessHandle, shell, proc, terminateProcess, CreateProcess(..), CmdSpec(..), createProcess, StdStream(CreatePipe))
-import System.Process.ListLike (ListLikePlus, Chunk(..), showCmdSpecForUser)
+import Data.Set (fromList)
+import Data.Text.Lazy as Text (Text)
+import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
+import System.Process.ListLike (ListLikePlus, Chunk(..))
+-- import System.Process.ListLike.Ready (readProcessInterleaved)
 import System.Process.ListLike.Thread (readProcessInterleaved)
 import System.Tasks.Types
-import System.Tasks.Pretty (putMVar', takeMVar')
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
 
 data ManagerState taskid
     = ManagerState
@@ -49,7 +48,11 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
-manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) => taskid -> MVar (TopTakes taskid) -> MVar (ManagerTakes taskid) -> IO ()
+manager :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
+           taskid
+        -> MVar (TopTakes taskid)
+        -> MVar (ManagerTakes taskid)
+        -> IO ()
 manager firstTaskId topTakes managerTakes = do
   evalStateT loop (ManagerState {managerStatus = Running', nextTaskId = firstTaskId, mvarMap = mempty})
     where
@@ -57,36 +60,36 @@ manager firstTaskId topTakes managerTakes = do
       loop = do
         st <- get
         case (managerStatus st, Map.null (mvarMap st)) of
-          (Exiting', True) -> lift $ putMVar' topTakes (TopTakes ManagerFinished)
+          (Exiting', True) -> liftIO $ putMVar topTakes (TopTakes ManagerFinished)
           _ -> do
-               msg <- lift $ takeMVar' managerTakes
+               msg <- liftIO $ takeMVar managerTakes
                case msg of
                  TopToManager (StartTask cmd input) -> do -- Start a new task
-                   taskTakes <- lift newEmptyMVar
-                   _tid <- lift $ forkIO $ task (nextTaskId st) managerTakes taskTakes cmd input
+                   taskTakes <- liftIO newEmptyMVar
+                   _tid <- liftIO $ forkIO $ task (nextTaskId st) managerTakes taskTakes cmd input
                    put (st {nextTaskId = succ (nextTaskId st), mvarMap = Map.insert (nextTaskId st) taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
-                   lift $ putMVar' topTakes (TopTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st)))
+                   liftIO $ putMVar topTakes (TopTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st)))
                  TopToManager ShutDown -> do -- Tell all the tasks to shut down
-                   lift $ mapM_ (\ (taskId, taskTakes) -> putMVar' taskTakes (ManagerToTask (CancelTask taskId))) (Map.toList (mvarMap st))
+                   liftIO $ mapM_ (\ (taskId, taskTakes) -> putMVar taskTakes (ManagerToTask (CancelTask taskId))) (Map.toList (mvarMap st))
                    put (st {managerStatus = Exiting'})
 
                  TopToManager (SendTaskStatus taskId) -> do
-                   lift $ putMVar' topTakes (TopTakes (TaskStatus taskId (Map.member taskId (mvarMap st))))
+                   liftIO $ putMVar topTakes (TopTakes (TaskStatus taskId (Map.member taskId (mvarMap st))))
                  TopToManager (TopToTask (CancelTask taskId)) -> do -- Forward some other message to a task
                    case Map.lookup taskId (mvarMap st) of
-                     Just taskTakes -> lift $ putMVar' taskTakes (ManagerToTask (CancelTask taskId))
-                     Nothing -> lift $ putMVar' topTakes (TopTakes (NoSuchTask taskId))
+                     Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
+                     Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
                  TaskToManager (ProcessToManager taskId (Result code)) -> do
                    -- A process finished - remove it from the process map
-                   lift $ putMVar' topTakes (TopTakes (TaskToTop (ProcessToManager taskId (Result code))))
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop (ProcessToManager taskId (Result code))))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
                  TaskToManager msg' -> do
                    -- Forward messages to top
-                   lift $ putMVar' topTakes (TopTakes (TaskToTop msg'))
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop msg'))
 
                loop
 
@@ -105,30 +108,49 @@ data TaskState
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
 task :: (Show taskid, Read taskid, ListLikePlus a c, a ~ Text) =>
-        taskid -> MVar (ManagerTakes taskid) -> MVar (TaskTakes taskid) -> CreateProcess -> a -> IO ()
+        taskid
+     -> MVar (ManagerTakes taskid)
+     -> MVar (TaskTakes taskid)
+     -> CreateProcess
+     -> a
+     -> IO ()
 task taskId managerTakes taskTakes cmd input = do
-  forkIO $ process taskId taskTakes cmd input
+  -- Should we do something with the ThreadId returned here?
+  forkIO $ process taskTakes cmd input
   evalStateT loop (TaskState {processHandle = Nothing})
     where
       -- Read and send messages until the process sends a result
       loop :: StateT TaskState IO ()
       loop = do
         st <- get
-        msg <- lift $ takeMVar' taskTakes
+        msg <- liftIO $ takeMVar taskTakes
         case msg of
           ManagerToTask (CancelTask _) ->
-              do lift $ maybe (return ()) terminateProcess (processHandle st)
+              do liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
           ProcessToTask x@(Result _) -> putManager (ProcessToManager taskId x) -- Process is finished, so stop looping
           ProcessToTask x@(ProcessHandle pid) -> put (st {processHandle = Just pid}) >> putManager (ProcessToManager taskId x) >> loop
           ProcessToTask x -> putManager (ProcessToManager taskId x) >> loop
 
-      putManager msg = lift $ putMVar' managerTakes (TaskToManager msg)
+      putManager msg = liftIO $ putMVar managerTakes (TaskToManager msg)
 
-taskTest = newEmptyMVar >>= \ v1 -> newEmptyMVar >>= \ v2 -> task 1 v1 v2 (proc "oneko" []) (Text.pack "")
+--instance Monoid ProcessHandle where
+--    mempty = undefined
+--    mappend p _ = p
+--
+--instance ListLikePlus a c => ProcessOutput a (Maybe ProcessHandle, [Chunk a]) where
+--    pidf pid = (Just pid, mempty)
+--    outf x = (Nothing, [Stdout x])
+--    errf x = (Nothing, [Stderr x])
+--    intf x = (Nothing, [Exception x])
+--    codef x = (Nothing, [Result x])
 
 -- | A process only sends process output.
-process :: Show taskid => taskid -> MVar (TaskTakes taskid) -> CreateProcess -> Text -> IO ()
-process taskId taskTakes p input = do
-  readProcessInterleaved (\ pid -> putMVar' taskTakes (ProcessToTask (ProcessHandle pid))) p input >>=
-    mapM_ (putMVar' taskTakes . ProcessToTask)
+process :: Show taskid =>
+           MVar (TaskTakes taskid)
+        -> CreateProcess
+        -> Text
+        -> IO ()
+process taskTakes p input = do
+  chunks <- readProcessInterleaved p input
+  mapM_ (putMVar taskTakes . ProcessToTask) chunks
