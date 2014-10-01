@@ -24,11 +24,6 @@ module System.Tasks
     ) where
 
 import Control.Concurrent (forkIO, MVar, newEmptyMVar)
-#if DEBUG
-import System.Tasks.Pretty (putMVar, takeMVar)
-#else
-import Control.Concurrent (putMVar, takeMVar)
-#endif
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Default (Default, def)
@@ -39,9 +34,15 @@ import Data.Text.Lazy as Text (Text)
 import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
 import System.Process.Chunks (Chunk(..))
 import System.Process.ListLike (ListLikeLazyIO)
--- import System.Process.ListLike.Ready (readProcessInterleaved)
 import System.Process.ListLike (readCreateProcess)
 import System.Tasks.Types
+
+#if DEBUG
+import System.Tasks.Pretty (putMVar, takeMVar)
+import Debug.Console (ePutStrLn)
+#else
+import Control.Concurrent (putMVar, takeMVar)
+#endif
 
 manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid, Default taskid) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
