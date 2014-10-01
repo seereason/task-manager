@@ -9,8 +9,8 @@ Category:            System
 Build-type:          Simple
 Cabal-version:       >=1.9
 
-flag local-process-listlike
-   Description: Link directly to the source of the process-listlike library
+flag local-process-extras
+   Description: Link directly to the source of the process-extras library
    Default: False
    Manual: True
 
@@ -28,12 +28,12 @@ Library
   Exposed-modules:     System.Tasks
                        System.Tasks.Pretty
                        System.Tasks.Types
-  Build-depends:       base >= 4 && <5, bytestring, containers, data-default, mtl, prettyclass, process, text
-  if flag(local-process-listlike)
-    Hs-Source-Dirs: ../process-listlike
+  Build-depends:       base >= 4 && <5, bytestring, containers, data-default, mtl, prettyclass, process, showplease, text
+  if flag(local-process-extras)
+    Hs-Source-Dirs: ../process-extras
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: process-listlike >= 1.3
+    Build-depends: process-extras >= 0.2.1
   if flag(debug-output)
     GHC-Options: -DDEBUG=1
 
@@ -41,11 +41,11 @@ Executable test-tasks
   Hs-Source-Dirs: .
   Main-Is: Main.hs
   GHC-Options: -threaded
-  Build-Depends: base >= 4, bytestring, containers, data-default, mtl, process, tasks, text
-  if flag(local-process-listlike)
-    Hs-Source-Dirs: ../process-listlike
+  Build-Depends: base >= 4, bytestring, containers, data-default, mtl, process, showplease, tasks, text
+  if flag(local-process-extras)
+    Hs-Source-Dirs: ../process-extras
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-listlike >= 1.3
+    Build-depends: tasks, process-extras >= 0.2.1
   if flag(debug-output)
     GHC-Options: -DDEBUG=1

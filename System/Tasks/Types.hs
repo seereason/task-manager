@@ -32,8 +32,16 @@ module System.Tasks.Types
 
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
-import System.Process (CmdSpec, CreateProcess(..), StdStream(..), CmdSpec(..))
-import System.Process.ListLike (Chunk)
+import System.Process (CmdSpec, CreateProcess(..), ProcessHandle, StdStream(..), CmdSpec(..))
+import System.Process.Chunks (Chunk(..))
+
+instance Show ProcessHandle where
+    show _ = "<ProcessHandle>"
+
+deriving instance Show ProcessToTask
+deriving instance Show CreateProcess
+deriving instance Show CmdSpec
+deriving instance Show StdStream
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)
@@ -55,10 +63,6 @@ data TopToManager taskid
     | SendTaskStatus taskid
     | TopToTask (ManagerToTask taskid)
     deriving Show
-
-deriving instance Show CreateProcess
-deriving instance Show CmdSpec
-deriving instance Show StdStream
 
 newtype TopTakes taskid = TopTakes (ManagerToTop taskid) deriving Show
 

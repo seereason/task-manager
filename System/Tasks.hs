@@ -37,9 +37,10 @@ import Data.Monoid
 import Data.Set (fromList)
 import Data.Text.Lazy as Text (Text)
 import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
-import System.Process.ListLike (ListLikePlus, Chunk(..))
+import System.Process.Chunks (Chunk(..))
+import System.Process.ListLike (ListLikeLazyIO)
 -- import System.Process.ListLike.Ready (readProcessInterleaved)
-import System.Process.ListLike.Thread (readProcessInterleaved)
+import System.Process.ListLike (readCreateProcess)
 import System.Tasks.Types
 
 manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid, Default taskid) =>
@@ -140,7 +141,7 @@ data TaskState
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: (Show taskid, Read taskid, ListLikePlus a c, a ~ Text) =>
+task :: (Show taskid, Read taskid, ListLikeLazyIO a c, a ~ Text) =>
         taskid
      -> MVar (ManagerTakes taskid)
      -> MVar (TaskTakes taskid)
@@ -185,5 +186,5 @@ process :: Show taskid =>
         -> Text
         -> IO ()
 process taskTakes p input = do
-  chunks <- readProcessInterleaved p input
+  chunks <- readCreateProcess p input
   mapM_ (putMVar taskTakes . ProcessToTask) chunks

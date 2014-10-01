@@ -11,7 +11,8 @@ module System.Tasks.Pretty
 import Control.Concurrent as C (MVar, putMVar, takeMVar)
 import Data.Monoid ((<>))
 import Debug.Console (ePutStrLn)
-import System.Process.ListLike (CreateProcess(cmdspec), showCmdSpecForUser)
+import System.Process (CreateProcess(cmdspec))
+import System.Process.Chunks (showCmdSpecForUser)
 import System.Tasks.Types
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
 
