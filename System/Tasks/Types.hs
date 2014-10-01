@@ -88,6 +88,6 @@ type ProcessToTask = Chunk Text
 -- Normally it keeps running whether there are any running tasks or not,
 -- in exiting mode it exits as soon as the last task finishes.
 data ManagerStatus
-    = Running'
-    | Exiting'
+    = Running
+    | Exiting
     deriving (Show, Eq)

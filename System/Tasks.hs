@@ -88,13 +88,13 @@ managerLoop firstTaskId topTakes managerTakes = do
 #if DEBUG
   ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
 #endif
-  evalStateT loop (ManagerState {managerStatus = Running', nextTaskId = firstTaskId, mvarMap = mempty})
+  evalStateT loop (ManagerState {managerStatus = Running, nextTaskId = firstTaskId, mvarMap = mempty})
     where
       loop :: StateT (ManagerState taskid) IO ()
       loop = do
         st <- get
         case (managerStatus st, Map.null (mvarMap st)) of
-          (Exiting', True) -> liftIO $ putMVar topTakes (TopTakes ManagerFinished)
+          (Exiting, True) -> liftIO $ putMVar topTakes (TopTakes ManagerFinished)
           _ -> do
                msg <- liftIO $ takeMVar managerTakes
                case msg of
@@ -107,7 +107,7 @@ managerLoop firstTaskId topTakes managerTakes = do
                    liftIO $ putMVar topTakes (TopTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st)))
                  TopToManager ShutDown -> do -- Tell all the tasks to shut down
                    liftIO $ mapM_ (\ (taskId, taskTakes) -> putMVar taskTakes (ManagerToTask (CancelTask taskId))) (Map.toList (mvarMap st))
-                   put (st {managerStatus = Exiting'})
+                   put (st {managerStatus = Exiting})
 
                  TopToManager (SendTaskStatus taskId) -> do
                    liftIO $ putMVar topTakes (TopTakes (TaskStatus taskId (Map.member taskId (mvarMap st))))
