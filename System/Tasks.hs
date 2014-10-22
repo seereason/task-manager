@@ -200,7 +200,10 @@ task taskId managerTakes taskTakes cmd input = do
 --    codef x = (Nothing, [Result x])
 
 -- | A process only sends process output.
-process :: Show taskid =>
+process ::
+#if DEBUG
+           Show taskid =>
+#endif
            MVar (TaskTakes taskid)
         -> CreateProcess
         -> Text
