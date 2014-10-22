@@ -11,7 +11,7 @@ import Debug.Console (ePutStrLn)
 import System.Process (CreateProcess, shell, proc)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..))
+import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes)
 
 type TaskId = Integer
 
@@ -19,7 +19,7 @@ main :: IO ()
 main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
-output :: Show a => a -> IO ()
+output :: TopTakes TaskId -> IO ()
 output = ePutStrLn . show
 
 -- | The input device
