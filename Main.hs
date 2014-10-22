@@ -16,19 +16,19 @@ import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..)
 type TaskId = Integer
 
 main :: IO ()
-main = manager (`evalStateT` cmds) keyboard output
+main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
 output :: Show a => a -> IO ()
 output = ePutStrLn . show
 
 -- | The input device
-keyboard :: StateT [CreateProcess] IO (ManagerTakes TaskId)
+keyboard :: StateT ([CreateProcess], TaskId) IO (ManagerTakes TaskId)
 keyboard = do
   input <- lift $ getLine
   case input of
     -- Start a new task
-    "t" -> get >>= \ (cmd : more) -> put more >> return (TopToManager (StartTask cmd empty))
+    "t" -> get >>= \ ((cmd : more), nextId) -> put (more, succ nextId) >> return (TopToManager (StartTask nextId cmd empty))
     -- Get the status of a task
     ['s',d] | isDigit d -> return (TopToManager (SendTaskStatus (read [d])))
     -- Get process manager status

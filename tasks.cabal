@@ -35,7 +35,7 @@ Library
   else
     Build-depends: process-extras >= 0.2.1
   if flag(debug-output)
-    GHC-Options: -DDEBUG=1
+    CPP-Options: -DDEBUG=1
 
 Executable test-tasks
   Hs-Source-Dirs: .
@@ -48,4 +48,4 @@ Executable test-tasks
   else
     Build-depends: tasks, process-extras >= 0.2.1
   if flag(debug-output)
-    GHC-Options: -DDEBUG=1
+    CPP-Options: -DDEBUG=1

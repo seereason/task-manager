@@ -26,7 +26,6 @@ module System.Tasks
 import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread)
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
-import Data.Default (Default, def)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
@@ -44,7 +43,7 @@ import Debug.Console (ePutStrLn)
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid, Default taskid) =>
+manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid))  -- ^ return the next message to send to the task manager
         -> (TopTakes taskid -> IO ()) -- ^ handle a message delivered by the task manager
@@ -55,7 +54,7 @@ manager runner putter taker = do
   -- Run messages between the task manager and the tasks.  The reason
   -- I use succ def instead of def is so that the first task will be 1
   -- rather than 0 if taskid is an Integral.
-  forkIO $ managerLoop (succ def) topTakes managerTakes
+  _ <- forkIO $ managerLoop topTakes managerTakes
   -- Messages coming from the input device.  This will run forever, it
   -- needs to be killed when the task manager is finished.
   inputThread <- forkIO $ runner (putLoop managerTakes)
@@ -83,20 +82,18 @@ manager runner putter taker = do
 data ManagerState taskid
     = ManagerState
       { managerStatus :: ManagerStatus
-      , nextTaskId :: taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
 managerLoop :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
-               taskid
-            -> MVar (TopTakes taskid)
+               MVar (TopTakes taskid)
             -> MVar (ManagerTakes taskid)
             -> IO ()
-managerLoop firstTaskId topTakes managerTakes = do
+managerLoop topTakes managerTakes = do
 #if DEBUG
   ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
 #endif
-  evalStateT loop (ManagerState {managerStatus = Running, nextTaskId = firstTaskId, mvarMap = mempty})
+  evalStateT loop (ManagerState {managerStatus = Running, mvarMap = mempty})
     where
       loop :: StateT (ManagerState taskid) IO ()
       loop = do
@@ -106,10 +103,10 @@ managerLoop firstTaskId topTakes managerTakes = do
           _ -> do
                msg <- liftIO $ takeMVar managerTakes
                case msg of
-                 TopToManager (StartTask cmd input) -> do -- Start a new task
+                 TopToManager (StartTask taskId cmd input) -> do
                    taskTakes <- liftIO newEmptyMVar
-                   _tid <- liftIO $ forkIO $ task (nextTaskId st) managerTakes taskTakes cmd input
-                   put (st {nextTaskId = succ (nextTaskId st), mvarMap = Map.insert (nextTaskId st) taskTakes (mvarMap st)})
+                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes cmd input
+                   put (st {mvarMap = Map.insert taskId taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
                    liftIO $ putMVar topTakes (TopTakes (ManagerStatus (fromList (keys (mvarMap st))) (managerStatus st)))

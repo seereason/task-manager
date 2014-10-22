@@ -57,7 +57,13 @@ data TaskTakes taskid
 -- There is a type for each direction between each of these four.
 
 data TopToManager taskid
-    = StartTask CreateProcess Text
+    = StartTask taskid CreateProcess Text
+    -- ^ Start a new task.  The client is responsible for generating a
+    -- unique taskid for the manager to use.  This simplifies that
+    -- task startup protocol - otherwise the client would send the
+    -- manager a start task message, the manager would generate an id
+    -- and send it back to the client, and the client would have to
+    -- figure out which task the taskid applied to.
     | SendManagerStatus
     | ShutDown
     | SendTaskStatus taskid

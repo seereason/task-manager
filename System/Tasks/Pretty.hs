@@ -64,7 +64,7 @@ instance Show taskid => Pretty (PP (TopTakes taskid)) where
     pPrint (PP (TopTakes x)) = ppPrint x
 
 instance Show taskid => Pretty (PP (TopToManager taskid)) where
-    pPrint (PP (StartTask p _input)) = text "sh: " <> ppPrint p
+    pPrint (PP (StartTask _taskid p _input)) = text "sh: " <> ppPrint p
     pPrint (PP (TopToTask x)) = ppPrint x
     pPrint (PP x) = text (show x)
 
