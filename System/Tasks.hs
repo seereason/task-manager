@@ -37,13 +37,20 @@ import System.Process.ListLike (readCreateProcess)
 import System.Tasks.Types
 
 #if DEBUG
+-- When DEBUG is set a fairly nice display of all the message passing
+-- is produced.
 import System.Tasks.Pretty (putMVar, takeMVar)
 import Debug.Console (ePutStrLn)
 #else
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid. (MonadIO m, Read taskid, Show taskid, Eq taskid, Ord taskid, Enum taskid) =>
+manager :: forall m taskid. (MonadIO m, Eq taskid, Ord taskid, Enum taskid
+#if DEBUG
+                             , Show taskid
+#endif
+                            ) =>
+
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid))  -- ^ return the next message to send to the task manager
         -> (TopTakes taskid -> IO ()) -- ^ handle a message delivered by the task manager
@@ -85,7 +92,11 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
-managerLoop :: forall taskid. (Show taskid, Read taskid, Enum taskid, Ord taskid) =>
+managerLoop :: forall taskid. (Enum taskid, Ord taskid
+#if DEBUG
+                              , Show taskid
+#endif
+                              ) =>
                MVar (TopTakes taskid)
             -> MVar (ManagerTakes taskid)
             -> IO ()
@@ -146,7 +157,11 @@ data TaskState
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: (Show taskid, Read taskid, ListLikeLazyIO a c, a ~ Text) =>
+task :: (ListLikeLazyIO a c, a ~ Text
+#if DEBUG
+        , Show taskid
+#endif
+        ) =>
         taskid
      -> MVar (ManagerTakes taskid)
      -> MVar (TaskTakes taskid)
