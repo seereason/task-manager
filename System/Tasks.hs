@@ -149,7 +149,7 @@ data TaskState
       { processHandle :: Maybe ProcessHandle
       -- ^ This is not available until the process sends it
       -- back to the task manager after being started.
-      } deriving Show
+      }
 
 -- | Manage a single task.  This is a wrapper around a process that
 -- can do status inquiries, tell the process to terminate, notice the

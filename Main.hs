@@ -11,7 +11,8 @@ import Debug.Console (ePutStrLn)
 import System.Process (CreateProcess, shell, proc)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes)
+import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..))
+import System.Tasks.Pretty ()
 
 type TaskId = Integer
 
@@ -20,7 +21,11 @@ main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
 output :: TopTakes TaskId -> IO ()
-output = ePutStrLn . show
+output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
+output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
+output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
+output (TopTakes (TaskStatus taskid status)) = ePutStrLn $ "TaskStatus " ++ show taskid ++ " " ++ show status
+output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
 keyboard :: StateT ([CreateProcess], TaskId) IO (ManagerTakes TaskId)

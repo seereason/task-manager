@@ -1,21 +1,44 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 module System.Tasks.Pretty
-    ( PP(PP)
+    (
+#if DEBUG
+      PP(PP)
     , MVarAction
     , System.Tasks.Pretty.takeMVar
     , System.Tasks.Pretty.putMVar
+#endif
     ) where
 
+import System.Process (ProcessHandle)
+import System.Process.Chunks (Chunk(..))
+import System.Tasks.Types
+
+#if DEBUG
 import Control.Concurrent as C (MVar, putMVar, takeMVar)
 import Data.Monoid ((<>))
 import Debug.Console (ePutStrLn)
-import System.Process (CreateProcess(cmdspec))
+import System.Process (CreateProcess(..), CmdSpec(..), StdStream(..))
 import System.Process.Chunks (showCmdSpecForUser)
-import System.Tasks.Types
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), Doc, text)
+#endif
 
+instance Show ProcessHandle where
+    show _ = "<ProcessHandle>"
+
+deriving instance Show ManagerStatus
+deriving instance Show ProcessToTask
+
+#if DEBUG
+deriving instance Show CreateProcess
+deriving instance Show CmdSpec
+deriving instance Show StdStream
+deriving instance Show taskid => Show (TopToManager taskid)
+deriving instance Show taskid => Show (ManagerToTop taskid)
+deriving instance Show taskid => Show (ManagerToTask taskid)
+deriving instance Show taskid => Show (TaskToManager taskid)
+deriving instance Show taskid => Show (TopTakes taskid)
 newtype PP a = PP a
 
 ppPrint :: Pretty (PP a) => a -> Doc
@@ -91,3 +114,4 @@ instance Pretty (PP ProcessToTask) where
 
 instance Pretty (PP CreateProcess) where
     pPrint (PP x) = text (showCmdSpecForUser (cmdspec x))
+#endif

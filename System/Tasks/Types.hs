@@ -32,26 +32,16 @@ module System.Tasks.Types
 
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
-import System.Process (CmdSpec, CreateProcess(..), ProcessHandle, StdStream(..), CmdSpec(..))
+import System.Process (CreateProcess(..){-, ProcessHandle, StdStream(..), CmdSpec(..)-})
 import System.Process.Chunks (Chunk(..))
-
-instance Show ProcessHandle where
-    show _ = "<ProcessHandle>"
-
-deriving instance Show ProcessToTask
-deriving instance Show CreateProcess
-deriving instance Show CmdSpec
-deriving instance Show StdStream
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)
     | TaskToManager (TaskToManager taskid)
-    deriving Show
 
 data TaskTakes taskid
     = ManagerToTask (ManagerToTask taskid)
     | ProcessToTask ProcessToTask
-    deriving Show
 
 -- The message types, in order: top <-> manager <-> task <-> process.
 -- There is a type for each direction between each of these four.
@@ -68,9 +58,8 @@ data TopToManager taskid
     | ShutDown
     | SendTaskStatus taskid
     | TopToTask (ManagerToTask taskid)
-    deriving Show
 
-newtype TopTakes taskid = TopTakes (ManagerToTop taskid) deriving Show
+newtype TopTakes taskid = TopTakes (ManagerToTop taskid)
 
 data ManagerToTop taskid
     = ManagerFinished -- ^ (Eventual) response to ShutDown
@@ -78,15 +67,13 @@ data ManagerToTop taskid
     | NoSuchTask taskid -- ^ Possible response to TopToTask (which currently can only be CancelTask)
     | TaskStatus taskid Bool -- ^ Response to SendTaskStatus
     | TaskToTop (TaskToManager taskid)
-    deriving Show
 
 data ManagerToTask taskid
     = CancelTask taskid
-    deriving (Show, Eq)
+    deriving Eq
 
 data TaskToManager taskid
     = ProcessToManager taskid ProcessToTask
-    deriving Show
 
 type ProcessToTask = Chunk Text
 
@@ -96,4 +83,4 @@ type ProcessToTask = Chunk Text
 data ManagerStatus
     = Running
     | Exiting
-    deriving (Show, Eq)
+    deriving Eq
