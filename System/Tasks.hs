@@ -23,13 +23,16 @@ module System.Tasks
     , module System.Tasks.Types
     ) where
 
-import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread)
+import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread, throwTo)
+import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, wait)
+import Control.Exception (SomeException, try)
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
 import Data.Text.Lazy as Text (Text)
+import Debug.Show (V(V))
 import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
 import System.Process.Chunks (Chunk(..))
 import System.Process.ListLike (ListLikeLazyIO)
@@ -132,9 +135,14 @@ managerLoop topTakes managerTakes = do
                      Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
                      Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
-                 TaskToManager (ProcessToManager taskId (Result code)) -> do
+                 TaskToManager x@(ProcessToManager taskId (Result code)) -> do
                    -- A process finished - remove it from the process map
-                   liftIO $ putMVar topTakes (TopTakes (TaskToTop (ProcessToManager taskId (Result code))))
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
+                   put (st { mvarMap = Map.delete taskId (mvarMap st) })
+
+                 TaskToManager x@(ProcessToManager taskId (Exception code)) -> do
+                   -- A process was terminated with an exception - remove it from the process map
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
                  TaskToManager msg' -> do
@@ -147,6 +155,7 @@ managerLoop topTakes managerTakes = do
 data TaskState
     = TaskState
       { processHandle :: Maybe ProcessHandle
+      , processAsync :: Async ()
       -- ^ This is not available until the process sends it
       -- back to the task manager after being started.
       }
@@ -169,45 +178,37 @@ task :: (ListLikeLazyIO a c, a ~ Text
      -> a
      -> IO ()
 task taskId managerTakes taskTakes cmd input = do
-  -- Should we do something with the ThreadId returned here?
-  forkIO $ process taskTakes cmd input
-  evalStateT loop (TaskState {processHandle = Nothing})
+  a <- async $ readCreateProcess cmd input >>= mapM_ (putMVar taskTakes . ProcessToTask)
+  evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
+  r <- try (wait a)
+  case r of
+    Left (e :: SomeException) -> do
+        -- This is not ever being executed.  Each exception is being
+        -- caught in the process and returned as an Exception chunk.
+        ePutStrLn ("wait -> " ++ show (V e))
+        throwTo (asyncThreadId a) e
+        putMVar managerTakes (TaskToManager (ProcessToManager taskId (Exception e)))
+    Right () -> return ()
     where
-      -- Read and send messages until the process sends a result
+      -- Read and send messages from the process until we see the final result
       loop :: StateT TaskState IO ()
       loop = do
         st <- get
         msg <- liftIO $ takeMVar taskTakes
         case msg of
-          ManagerToTask (CancelTask _) ->
-              do liftIO $ maybe (return ()) terminateProcess (processHandle st)
+          ProcessToTask x@(ProcessHandle pid) ->
+              do put (st {processHandle = Just pid})
+                 liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
                  loop
-          ProcessToTask x@(Result _) -> putManager (ProcessToManager taskId x) -- Process is finished, so stop looping
-          ProcessToTask x@(ProcessHandle pid) -> put (st {processHandle = Just pid}) >> putManager (ProcessToManager taskId x) >> loop
-          ProcessToTask x -> putManager (ProcessToManager taskId x) >> loop
-
-      putManager msg = liftIO $ putMVar managerTakes (TaskToManager msg)
-
---instance Monoid ProcessHandle where
---    mempty = undefined
---    mappend p _ = p
---
---instance ListLikePlus a c => ProcessOutput a (Maybe ProcessHandle, [Chunk a]) where
---    pidf pid = (Just pid, mempty)
---    outf x = (Nothing, [Stdout x])
---    errf x = (Nothing, [Stderr x])
---    intf x = (Nothing, [Exception x])
---    codef x = (Nothing, [Result x])
-
--- | A process only sends process output.
-process ::
-#if DEBUG
-           Show taskid =>
-#endif
-           MVar (TaskTakes taskid)
-        -> CreateProcess
-        -> Text
-        -> IO ()
-process taskTakes p input = do
-  chunks <- readCreateProcess p input
-  mapM_ (putMVar taskTakes . ProcessToTask) chunks
+          ManagerToTask (CancelTask _) ->
+              do liftIO $ cancel (processAsync st)
+                 -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
+                 loop
+          ProcessToTask x@(Result _) ->  -- Process is finished, so stop looping
+              do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+          ProcessToTask x@(Exception e) ->
+              do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+                 loop
+          ProcessToTask x -> -- Stdout, Stderr
+              do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+                 loop
