@@ -1,16 +1,20 @@
 {-# LANGUAGE CPP, FlexibleContexts, GADTs, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 
+import Control.Concurrent (MVar, putMVar)
+import Control.Exception (throw, ArithException(LossOfPrecision))
 import Control.Monad.State (StateT, get, put, evalStateT)
 import Control.Monad.Trans (lift)
 import Data.Char (isDigit)
 import Data.List (intercalate)
 import Data.Monoid
-import Data.Text.Lazy as Text (empty)
-import System.Process (CreateProcess, shell, proc)
+import Data.Text.Lazy as Text (Text)
+import System.Process (CreateProcess, shell, proc, terminateProcess)
+import System.Process.Chunks (Chunk(Exception, ProcessHandle))
+import System.Process.ListLike (ListLikeLazyIO, readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (TaskId, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..))
+import System.Tasks.Types (TaskId, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask))
 import System.Tasks.Pretty ()
 
 #if DEBUG
@@ -23,29 +27,30 @@ ePutStrLn = liftIO . hPutStrLn stderr
 #endif
 
 type TID = Integer
-
 instance TaskId TID
+type ResultType = Int
+instance Result ResultType
 
 main :: IO ()
 main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
-output :: TopTakes TID -> IO ()
+output :: TopTakes TID ResultType -> IO ()
 output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
 output (TopTakes (TaskStatus taskid status)) = ePutStrLn $ "TaskStatus " ++ show taskid ++ " " ++ show status
 output (TopTakes (TaskToTop (TaskCancelled taskid))) = ePutStrLn $ "TaskCancelled " ++ show taskid
-output (TopTakes (TaskToTop (TaskFinished taskid))) = ePutStrLn $ "TaskFinished " ++ show taskid
+output (TopTakes (TaskToTop (TaskFinished taskid result))) = ePutStrLn $ "TaskFinished " ++ show taskid ++ " -> " ++ show result
 output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
-keyboard :: StateT ([CreateProcess], TID) IO (ManagerTakes TID)
+keyboard :: StateT ([MVar (TaskTakes TID) -> IO ResultType], TID) IO (ManagerTakes TID ResultType)
 keyboard = do
   input <- lift $ getLine
   case input of
     -- Start a new task
-    "t" -> get >>= \ ((cmd : more), nextId) -> put (more, succ nextId) >> return (TopToManager (StartTask nextId cmd empty))
+    "t" -> get >>= \ ((cmd : more), nextId) -> put (more, succ nextId) >> return (TopToManager (StartTask nextId cmd))
     -- Get the status of a task
     ['s',d] | isDigit d -> return (TopToManager (SendTaskStatus (read [d])))
     -- Get process manager status
@@ -57,9 +62,12 @@ keyboard = do
     -- error
     x -> ePutStrLn (show x ++ " - expected: t, s, s<digit>, k<digit>, or x") >> keyboard
 
-cmds :: [CreateProcess]
-cmds = countToFive : nekos
+-- | The sequence of tasks that t will run.
+cmds :: [MVar (TaskTakes TID) -> IO ResultType]
+cmds = throwExn : run' countToFive : map run' nekos
 
+throwExn :: MVar (TaskTakes taskid) -> IO Int
+throwExn _ = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
 countToFive :: CreateProcess
 countToFive = shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'"
 million :: CreateProcess
@@ -68,3 +76,21 @@ neko :: String -> Int -> CreateProcess
 neko color speed = proc "oneko" ["-fg", color, "-speed", show speed]
 nekos :: [CreateProcess]
 nekos = map (uncurry neko) (zip (concat (repeat ["red", "green", "blue", "black", "yellow"])) (concat (repeat [12..18])))
+
+run :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
+       CreateProcess -> a -> MVar (TaskTakes taskid) -> IO ResultType
+run cmd input taskTakes =
+  do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
+     mapM_ (putMVar taskTakes . ProcessToTask) chunks
+     mapM_ (\ chunk -> case chunk of
+                         Exception e -> do
+#if DEBUG
+                           ePutStrLn "throw chunk!"
+#endif
+                           throw e
+                         _x -> return ()) chunks
+     return 123
+
+run' :: TaskId taskid => CreateProcess -> MVar (TaskTakes taskid) -> IO ResultType
+run' cmd taskTakes = run cmd mempty taskTakes
+

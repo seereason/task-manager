@@ -20,6 +20,7 @@
 
 module System.Tasks.Types
     ( TaskId
+    , Result
     , TopTakes(..)
     , ManagerTakes(..)
     , TaskTakes(..)
@@ -31,20 +32,23 @@ module System.Tasks.Types
     , ManagerStatus(..)
     ) where
 
+import Control.Concurrent (MVar)
 import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
-import System.Process (CreateProcess(..){-, ProcessHandle, StdStream(..), CmdSpec(..)-})
 import System.Process.Chunks (Chunk(..))
 
-class (Eq taskid, Ord taskid, Enum taskid
 #if DEBUG
-                                         , Show taskid
+-- The Result class only exists to add Show as a superclass when debugging.
+class Show result => Result result
+class (Eq taskid, Ord taskid, Enum taskid, Show taskid) => TaskId taskid
+#else
+class Result result
+class (Eq taskid, Ord taskid, Enum taskid) => TaskId taskid
 #endif
-                                                      ) => TaskId taskid
 
-data ManagerTakes taskid
-    = TopToManager (TopToManager taskid)
-    | TaskToManager (TaskToManager taskid)
+data ManagerTakes taskid result
+    = TopToManager (TopToManager taskid result)
+    | TaskToManager (TaskToManager taskid result)
 
 data TaskTakes taskid
     = ManagerToTask (ManagerToTask taskid)
@@ -53,8 +57,8 @@ data TaskTakes taskid
 -- The message types, in order: top <-> manager <-> task <-> process.
 -- There is a type for each direction between each of these four.
 
-data TopToManager taskid
-    = StartTask taskid CreateProcess Text
+data TopToManager taskid result
+    = StartTask taskid (MVar (TaskTakes taskid) -> IO result)
     -- ^ Start a new task.  The client is responsible for generating a
     -- unique taskid for the manager to use.  This simplifies that
     -- task startup protocol - otherwise the client would send the
@@ -66,22 +70,22 @@ data TopToManager taskid
     | SendTaskStatus taskid
     | TopToTask (ManagerToTask taskid)
 
-newtype TopTakes taskid = TopTakes (ManagerToTop taskid)
+newtype TopTakes taskid result = TopTakes (ManagerToTop taskid result)
 
-data ManagerToTop taskid
+data ManagerToTop taskid result
     = ManagerFinished -- ^ (Eventual) response to ShutDown
     | ManagerStatus (Set taskid) ManagerStatus -- ^ Response to SendManagerStatus
     | NoSuchTask taskid -- ^ Possible response to TopToTask (which currently can only be CancelTask)
     | TaskStatus taskid Bool -- ^ Response to SendTaskStatus
-    | TaskToTop (TaskToManager taskid)
+    | TaskToTop (TaskToManager taskid result)
 
 data ManagerToTask taskid
     = CancelTask taskid
     deriving Eq
 
-data TaskToManager taskid
+data TaskToManager taskid result
     = ProcessToManager taskid ProcessToTask
-    | TaskFinished taskid
+    | TaskFinished taskid result
     | TaskCancelled taskid
 
 type ProcessToTask = Chunk Text

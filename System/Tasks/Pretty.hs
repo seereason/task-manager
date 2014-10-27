@@ -35,12 +35,18 @@ deriving instance Show ProcessToTask
 deriving instance Show CreateProcess
 deriving instance Show CmdSpec
 deriving instance Show StdStream
-deriving instance Show taskid => Show (TopToManager taskid)
-deriving instance Show taskid => Show (ManagerToTop taskid)
+deriving instance (Show taskid, Show result) => Show (ManagerToTop taskid result)
 deriving instance Show taskid => Show (ManagerToTask taskid)
-deriving instance Show taskid => Show (TaskToManager taskid)
-deriving instance Show taskid => Show (TopTakes taskid)
+deriving instance (Show taskid, Show result) => Show (TaskToManager taskid result)
+deriving instance (Show taskid, Show result) => Show (TopTakes taskid result)
 deriving instance Show (Chunk Text)
+
+instance Show taskid => Show (TopToManager taskid result) where
+    show (StartTask i _) = "StartTask " ++ show i
+    show ShutDown = "ShutDown"
+    show SendManagerStatus = "SendManagerStatus"
+    show (SendTaskStatus i) = "SendTaskStatus " ++ show i
+    show (TopToTask x) = show x
 
 ppPrint :: Pretty (V a) => a -> Doc
 ppPrint = pPrint . V
@@ -68,11 +74,11 @@ takeMVar v = C.takeMVar v >>= \ x -> ePutStrLn (ppDisplay (Take, x)) >> return x
 putMVar :: Pretty (V (MVarAction, a)) => MVar a -> a -> IO ()
 putMVar v x = ePutStrLn (ppDisplay (Put, x)) >> C.putMVar v x
 
-instance Show taskid => Pretty (V (MVarAction, TopTakes taskid)) where
+instance (Show taskid, Show result) => Pretty (V (MVarAction, TopTakes taskid result)) where
     pPrint (V (Take, x)) = topPrefix <> text "   " <> ppPrint x <> text " <-"
     pPrint (V (Put, x)) = managerPrefix <> text "<- " <> ppPrint x
 
-instance Show taskid => Pretty (V (MVarAction, ManagerTakes taskid)) where
+instance (Show taskid, Show result) => Pretty (V (MVarAction, ManagerTakes taskid result)) where
     pPrint (V (Take, x@(TopToManager _))) = managerPrefix <> text "-> " <> ppPrint x
     pPrint (V (Take, x@(TaskToManager _))) = managerPrefix <> text "   " <> ppPrint x <> text " <-"
     pPrint (V (Put, x@(TopToManager _))) = topPrefix <> text "   " <> ppPrint x <> text " ->"
@@ -84,29 +90,29 @@ instance Show taskid => Pretty (V (MVarAction, TaskTakes taskid)) where
     pPrint (V (Put, x@(ManagerToTask _))) = managerPrefix <> text "   " <> ppPrint x <> text " ->"
     pPrint (V (Put, x@(ProcessToTask _))) = processPrefix <> text "<- " <> ppPrint x
 
-instance Show taskid => Pretty (V (TopTakes taskid)) where
+instance (Show taskid, Show result) => Pretty (V (TopTakes taskid result)) where
     pPrint (V (TopTakes x)) = ppPrint x
 
-instance Show taskid => Pretty (V (TopToManager taskid)) where
-    pPrint (V (StartTask _taskid p _input)) = text "sh: " <> ppPrint p
+instance Show taskid => Pretty (V (TopToManager taskid result)) where
+    pPrint (V (StartTask taskid _run)) = text "sh: " <> text (show taskid)
     pPrint (V (TopToTask x)) = ppPrint x
     pPrint (V x) = text (show x)
 
-instance Show taskid => Pretty (V (ManagerToTop taskid)) where
+instance (Show taskid, Show result) => Pretty (V (ManagerToTop taskid result)) where
     pPrint (V (TaskToTop x)) = ppPrint x
     pPrint (V x) = text (show x)
 
-instance Show taskid => Pretty (V (ManagerTakes taskid)) where
+instance (Show taskid, Show result) => Pretty (V (ManagerTakes taskid result)) where
     pPrint (V (TopToManager x)) = ppPrint x
     pPrint (V (TaskToManager x)) = ppPrint x
 
 instance Show taskid => Pretty (V (ManagerToTask taskid)) where
     pPrint (V x) = text (show x)
 
-instance Show taskid => Pretty (V (TaskToManager taskid)) where
+instance (Show taskid, Show result) => Pretty (V (TaskToManager taskid result)) where
     pPrint (V (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> pPrint (V x)
     pPrint (V (TaskCancelled i)) = text ("P" <> show i <> ": cancelled")
-    pPrint (V (TaskFinished i)) = text ("P" <> show i <> ": finished")
+    pPrint (V (TaskFinished i result)) = text ("P" <> show i <> " result: " ++ show result)
 
 instance Show taskid => Pretty (V (TaskTakes taskid)) where
     pPrint (V (ManagerToTask x)) = ppPrint (x)

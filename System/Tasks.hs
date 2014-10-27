@@ -24,34 +24,31 @@ module System.Tasks
     ) where
 
 import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread, throwTo)
-import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, wait)
+import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, waitCatch)
 import Control.Exception (fromException, SomeException, AsyncException(ThreadKilled), throw, try)
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
-import Data.Text.Lazy as Text (Text)
-import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
+import System.Process (ProcessHandle)
 import System.Process.Chunks (Chunk(..))
-import System.Process.ListLike (ListLikeLazyIO)
-import System.Process.ListLike (readCreateProcess)
 import System.Tasks.Types
 
-#if DEBUG
-import Debug.Show (V(V))
 -- When DEBUG is set a fairly nice display of all the message passing
 -- is produced.
+#if DEBUG
+import Debug.Show (V(V))
 import System.Tasks.Pretty (putMVar, takeMVar)
-import Debug.Console (ePutStrLn)
+import Debug.Console (ePutStrLn) -- atomic debug output
 #else
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid. (MonadIO m, TaskId taskid) =>
+manager :: forall m taskid result. (MonadIO m, TaskId taskid, Result result) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
-        -> (m (ManagerTakes taskid))  -- ^ return the next message to send to the task manager
-        -> (TopTakes taskid -> IO ()) -- ^ handle a message delivered by the task manager
+        -> (m (ManagerTakes taskid result))  -- ^ return the next message to send to the task manager
+        -> (TopTakes taskid result -> IO ()) -- ^ handle a message delivered by the task manager
         -> IO ()
 manager runner putter taker = do
   topTakes <- newEmptyMVar
@@ -76,7 +73,7 @@ manager runner putter taker = do
                _ -> takeLoop topTakes tid
 
       -- Keep sending messages to the client until...?
-      putLoop :: MVar (ManagerTakes taskid) -> m ()
+      putLoop :: MVar (ManagerTakes taskid result) -> m ()
       putLoop managerTakes =
           do msg <- putter
              liftIO $ putMVar managerTakes msg
@@ -90,9 +87,9 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
-managerLoop :: forall taskid. TaskId taskid =>
-               MVar (TopTakes taskid)
-            -> MVar (ManagerTakes taskid)
+managerLoop :: forall taskid result. (TaskId taskid, Result result) =>
+               MVar (TopTakes taskid result)
+            -> MVar (ManagerTakes taskid result)
             -> IO ()
 managerLoop topTakes managerTakes = do
 #if DEBUG
@@ -108,9 +105,9 @@ managerLoop topTakes managerTakes = do
           _ -> do
                msg <- liftIO $ takeMVar managerTakes
                case msg of
-                 TopToManager (StartTask taskId cmd input) -> do
+                 TopToManager (StartTask taskId run) -> do
                    taskTakes <- liftIO newEmptyMVar
-                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run cmd input taskTakes)
+                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run taskTakes)
                    put (st {mvarMap = Map.insert taskId taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
@@ -126,18 +123,26 @@ managerLoop topTakes managerTakes = do
                      Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
                      Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
-                 TaskToManager (ProcessToManager taskId (Result _code)) -> do
-                   -- A process finished - remove it from the process map
-                   liftIO $ putMVar topTakes (TopTakes (TaskToTop (TaskFinished taskId)))
-                   put (st { mvarMap = Map.delete taskId (mvarMap st) })
-
-                 TaskToManager x@(ProcessToManager taskId (Exception _e)) -> do
-                   -- A process was terminated with an exception - remove it from the process map
+                 TaskToManager x@(TaskFinished taskId _result) -> do
+                   -- The task completed and delivered its result value.
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
                  TaskToManager x@(TaskCancelled taskId) -> do
                    -- Process was sent a cancel (thread killed exception)
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
+                   put (st { mvarMap = Map.delete taskId (mvarMap st) })
+
+                 TaskToManager (ProcessToManager _taskId (Result _code)) ->
+                   -- A process finished - remove it from the process map
+                   -- (It is no longer necessary to send this message, the
+                   -- TaskFinished message below is used instead.)
+                   -- liftIO $ putMVar topTakes (TopTakes (TaskToTop (TaskFinished taskId)))
+                   -- put (st { mvarMap = Map.delete taskId (mvarMap st) })
+                   return ()
+
+                 TaskToManager x@(ProcessToManager taskId (Exception _e)) -> do
+                   -- A process was terminated with an exception - remove it from the process map
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
@@ -147,27 +152,13 @@ managerLoop topTakes managerTakes = do
 
                loop
 
-
-data TaskState
+data TaskState result
     = TaskState
       { processHandle :: Maybe ProcessHandle
-      , processAsync :: Async ()
+      , processAsync :: Async result
       -- ^ This is not available until the process sends it
       -- back to the task manager after being started.
       }
-
-run :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
-       CreateProcess -> a -> MVar (TaskTakes taskid) -> IO ()
-run cmd input taskTakes =
-  do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
-     mapM_ (putMVar taskTakes . ProcessToTask) chunks
-     mapM_ (\ chunk -> case chunk of
-                         Exception e -> do
-#if DEBUG
-                           ePutStrLn "throw chunk!"
-#endif
-                           throw e
-                         _x -> return ()) chunks
 
 -- | Manage a single task.  This is a wrapper around a process that
 -- can do status inquiries, tell the process to terminate, notice the
@@ -175,29 +166,29 @@ run cmd input taskTakes =
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: forall taskid. TaskId taskid =>
+task :: forall taskid result. (TaskId taskid, Result result) =>
         taskid
-     -> MVar (ManagerTakes taskid)
+     -> MVar (ManagerTakes taskid result)
      -> MVar (TaskTakes taskid)
-     -> IO ()
+     -> IO result
      -> IO ()
 task taskId managerTakes taskTakes p = do
   a <- async p
   evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
-  r <- try (wait a)
+  r <- waitCatch a
   case r of
-    Left (e :: SomeException) -> do
-        -- This is not ever being executed.  Each exception is being
-        -- caught in the process and returned as an Exception chunk.
+    Left e -> do
+        -- This is not ever being executed - why?
 #if DEBUG
         ePutStrLn ("wait -> " ++ show (V e))
 #endif
         throwTo (asyncThreadId a) e
         putMVar managerTakes (TaskToManager (ProcessToManager taskId (Exception e)))
-    Right () -> return ()
+    Right result -> do
+        putMVar managerTakes (TaskToManager (TaskFinished taskId result))
     where
       -- Read and send messages from the process until we see the final result
-      loop :: StateT TaskState IO ()
+      loop :: StateT (TaskState result) IO ()
       loop = do
         st <- get
         msg <- liftIO $ takeMVar taskTakes
