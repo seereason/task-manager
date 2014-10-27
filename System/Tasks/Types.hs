@@ -74,6 +74,8 @@ data ManagerToTask taskid
 
 data TaskToManager taskid
     = ProcessToManager taskid ProcessToTask
+    | TaskFinished taskid
+    | TaskCancelled taskid
 
 type ProcessToTask = Chunk Text
 

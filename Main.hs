@@ -25,6 +25,8 @@ output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
 output (TopTakes (TaskStatus taskid status)) = ePutStrLn $ "TaskStatus " ++ show taskid ++ " " ++ show status
+output (TopTakes (TaskToTop (TaskCancelled taskid))) = ePutStrLn $ "TaskCancelled " ++ show taskid
+output (TopTakes (TaskToTop (TaskFinished taskid))) = ePutStrLn $ "TaskFinished " ++ show taskid
 output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device

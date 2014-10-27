@@ -25,7 +25,7 @@ module System.Tasks
 
 import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread, throwTo)
 import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, wait)
-import Control.Exception (SomeException, try)
+import Control.Exception (fromException, SomeException, AsyncException(ThreadKilled), throw, try)
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
@@ -135,13 +135,18 @@ managerLoop topTakes managerTakes = do
                      Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
                      Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
-                 TaskToManager x@(ProcessToManager taskId (Result code)) -> do
+                 TaskToManager x@(ProcessToManager taskId (Result _code)) -> do
                    -- A process finished - remove it from the process map
+                   liftIO $ putMVar topTakes (TopTakes (TaskToTop (TaskFinished taskId)))
+                   put (st { mvarMap = Map.delete taskId (mvarMap st) })
+
+                 TaskToManager x@(ProcessToManager taskId (Exception _e)) -> do
+                   -- A process was terminated with an exception - remove it from the process map
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
-                 TaskToManager x@(ProcessToManager taskId (Exception code)) -> do
-                   -- A process was terminated with an exception - remove it from the process map
+                 TaskToManager x@(TaskCancelled taskId) -> do
+                   -- Process was sent a cancel (thread killed exception)
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
@@ -178,7 +183,11 @@ task :: (ListLikeLazyIO a c, a ~ Text
      -> a
      -> IO ()
 task taskId managerTakes taskTakes cmd input = do
-  a <- async $ readCreateProcess cmd input >>= mapM_ (putMVar taskTakes . ProcessToTask)
+  a <- async $ do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
+                  mapM_ (putMVar taskTakes . ProcessToTask) chunks
+                  mapM_ (\ chunk -> case chunk of
+                                      Exception e -> ePutStrLn "throw chunk!" >> throw e
+                                      _x -> return ()) chunks
   evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
   r <- try (wait a)
   case r of
@@ -205,10 +214,11 @@ task taskId managerTakes taskTakes cmd input = do
                  -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
           ProcessToTask x@(Result _) ->  -- Process is finished, so stop looping
-              do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
-          ProcessToTask x@(Exception e) ->
-              do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
-                 loop
+              liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+          ProcessToTask x@(Exception e) | fromException e == Just ThreadKilled -> -- Process was cancelled
+              liftIO $ putMVar managerTakes (TaskToManager (TaskCancelled taskId))
+          ProcessToTask x@(Exception _e) -> -- Some other exception
+              liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
           ProcessToTask x -> -- Stdout, Stderr
               do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
                  loop
