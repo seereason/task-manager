@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 -- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
 -- started, their status can be queried, and they can be cancelled.
@@ -19,7 +19,8 @@
 -- 'ShutDown' or 'SendTaskStatus'.
 
 module System.Tasks.Types
-    ( TopTakes(..)
+    ( TaskId
+    , TopTakes(..)
     , ManagerTakes(..)
     , TaskTakes(..)
     , TopToManager(..)
@@ -34,6 +35,12 @@ import Data.Set (Set)
 import Data.Text.Lazy as Text (Text)
 import System.Process (CreateProcess(..){-, ProcessHandle, StdStream(..), CmdSpec(..)-})
 import System.Process.Chunks (Chunk(..))
+
+class (Eq taskid, Ord taskid, Enum taskid
+#if DEBUG
+                                         , Show taskid
+#endif
+                                                      ) => TaskId taskid
 
 data ManagerTakes taskid
     = TopToManager (TopToManager taskid)

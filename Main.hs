@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, FlexibleContexts, GADTs, Rank2Types, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, FlexibleContexts, GADTs, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import Control.Monad.State (StateT, get, put, evalStateT)
@@ -7,20 +7,30 @@ import Data.Char (isDigit)
 import Data.List (intercalate)
 import Data.Monoid
 import Data.Text.Lazy as Text (empty)
-import Debug.Console (ePutStrLn)
 import System.Process (CreateProcess, shell, proc)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..))
+import System.Tasks.Types (TaskId, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..))
 import System.Tasks.Pretty ()
 
-type TaskId = Integer
+#if DEBUG
+import Debug.Console (ePutStrLn)
+#else
+import Control.Monad.Trans (MonadIO, liftIO)
+import System.IO (hPutStrLn, stderr)
+ePutStrLn :: MonadIO m => String -> m ()
+ePutStrLn = liftIO . hPutStrLn stderr
+#endif
+
+type TID = Integer
+
+instance TaskId TID
 
 main :: IO ()
 main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
-output :: TopTakes TaskId -> IO ()
+output :: TopTakes TID -> IO ()
 output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
@@ -30,7 +40,7 @@ output (TopTakes (TaskToTop (TaskFinished taskid))) = ePutStrLn $ "TaskFinished 
 output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
-keyboard :: StateT ([CreateProcess], TaskId) IO (ManagerTakes TaskId)
+keyboard :: StateT ([CreateProcess], TID) IO (ManagerTakes TID)
 keyboard = do
   input <- lift $ getLine
   case input of

@@ -32,7 +32,6 @@ import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
 import Data.Text.Lazy as Text (Text)
-import Debug.Show (V(V))
 import System.Process (ProcessHandle, terminateProcess, CreateProcess(..))
 import System.Process.Chunks (Chunk(..))
 import System.Process.ListLike (ListLikeLazyIO)
@@ -40,6 +39,7 @@ import System.Process.ListLike (readCreateProcess)
 import System.Tasks.Types
 
 #if DEBUG
+import Debug.Show (V(V))
 -- When DEBUG is set a fairly nice display of all the message passing
 -- is produced.
 import System.Tasks.Pretty (putMVar, takeMVar)
@@ -48,12 +48,7 @@ import Debug.Console (ePutStrLn)
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid. (MonadIO m, Eq taskid, Ord taskid, Enum taskid
-#if DEBUG
-                             , Show taskid
-#endif
-                            ) =>
-
+manager :: forall m taskid. (MonadIO m, TaskId taskid) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid))  -- ^ return the next message to send to the task manager
         -> (TopTakes taskid -> IO ()) -- ^ handle a message delivered by the task manager
@@ -95,11 +90,7 @@ data ManagerState taskid
       , mvarMap :: Map taskid (MVar (TaskTakes taskid))
       }
 
-managerLoop :: forall taskid. (Enum taskid, Ord taskid
-#if DEBUG
-                              , Show taskid
-#endif
-                              ) =>
+managerLoop :: forall taskid. TaskId taskid =>
                MVar (TopTakes taskid)
             -> MVar (ManagerTakes taskid)
             -> IO ()
@@ -119,7 +110,7 @@ managerLoop topTakes managerTakes = do
                case msg of
                  TopToManager (StartTask taskId cmd input) -> do
                    taskTakes <- liftIO newEmptyMVar
-                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes cmd input
+                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run taskTakes cmd input)
                    put (st {mvarMap = Map.insert taskId taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
@@ -165,36 +156,42 @@ data TaskState
       -- back to the task manager after being started.
       }
 
+run :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
+       MVar (TaskTakes taskid) -> CreateProcess -> a -> IO ()
+run taskTakes cmd input =
+  do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
+     mapM_ (putMVar taskTakes . ProcessToTask) chunks
+     mapM_ (\ chunk -> case chunk of
+                         Exception e -> do
+#if DEBUG
+                           ePutStrLn "throw chunk!"
+#endif
+                           throw e
+                         _x -> return ()) chunks
+
 -- | Manage a single task.  This is a wrapper around a process that
 -- can do status inquiries, tell the process to terminate, notice the
 -- task has finished and return a message, A task receives TaskInput
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: (ListLikeLazyIO a c, a ~ Text
-#if DEBUG
-        , Show taskid
-#endif
-        ) =>
+task :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
         taskid
      -> MVar (ManagerTakes taskid)
      -> MVar (TaskTakes taskid)
-     -> CreateProcess
-     -> a
      -> IO ()
-task taskId managerTakes taskTakes cmd input = do
-  a <- async $ do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
-                  mapM_ (putMVar taskTakes . ProcessToTask) chunks
-                  mapM_ (\ chunk -> case chunk of
-                                      Exception e -> ePutStrLn "throw chunk!" >> throw e
-                                      _x -> return ()) chunks
+     -> IO ()
+task taskId managerTakes taskTakes p = do
+  a <- async p
   evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
   r <- try (wait a)
   case r of
     Left (e :: SomeException) -> do
         -- This is not ever being executed.  Each exception is being
         -- caught in the process and returned as an Exception chunk.
+#if DEBUG
         ePutStrLn ("wait -> " ++ show (V e))
+#endif
         throwTo (asyncThreadId a) e
         putMVar managerTakes (TaskToManager (ProcessToManager taskId (Exception e)))
     Right () -> return ()
