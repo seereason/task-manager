@@ -110,7 +110,7 @@ managerLoop topTakes managerTakes = do
                case msg of
                  TopToManager (StartTask taskId cmd input) -> do
                    taskTakes <- liftIO newEmptyMVar
-                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run taskTakes cmd input)
+                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run cmd input taskTakes)
                    put (st {mvarMap = Map.insert taskId taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
@@ -157,8 +157,8 @@ data TaskState
       }
 
 run :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
-       MVar (TaskTakes taskid) -> CreateProcess -> a -> IO ()
-run taskTakes cmd input =
+       CreateProcess -> a -> MVar (TaskTakes taskid) -> IO ()
+run cmd input taskTakes =
   do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
      mapM_ (putMVar taskTakes . ProcessToTask) chunks
      mapM_ (\ chunk -> case chunk of
