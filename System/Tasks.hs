@@ -126,7 +126,7 @@ managerLoop topTakes managerTakes = do
                      Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
                      Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
-                 TaskToManager x@(ProcessToManager taskId (Result _code)) -> do
+                 TaskToManager (ProcessToManager taskId (Result _code)) -> do
                    -- A process finished - remove it from the process map
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop (TaskFinished taskId)))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
@@ -175,7 +175,7 @@ run taskTakes cmd input =
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
+task :: forall taskid. TaskId taskid =>
         taskid
      -> MVar (ManagerTakes taskid)
      -> MVar (TaskTakes taskid)
@@ -212,7 +212,7 @@ task taskId managerTakes taskTakes p = do
                  loop
           ProcessToTask x@(Result _) ->  -- Process is finished, so stop looping
               liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
-          ProcessToTask x@(Exception e) | fromException e == Just ThreadKilled -> -- Process was cancelled
+          ProcessToTask (Exception e) | fromException e == Just ThreadKilled -> -- Process was cancelled
               liftIO $ putMVar managerTakes (TaskToManager (TaskCancelled taskId))
           ProcessToTask x@(Exception _e) -> -- Some other exception
               liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
