@@ -30,10 +30,24 @@ Library
                        System.Tasks.Types
   Build-depends:       async, base >= 4 && <5, bytestring, containers, data-default, mtl, prettyclass, process, showplease, text
   if flag(local-process-extras)
-    Hs-Source-Dirs: ../process-extras
+    Hs-Source-Dirs: ../process-listlike/src
     Build-Depends: deepseq, ListLike
+    Exposed-Modules:
+      System.Process.ByteString
+      System.Process.ByteString.Lazy
+      System.Process.Chunks
+      System.Process.ListLike
+      System.Process.ListLike.Classes
+      System.Process.ListLike.Instances
+      System.Process.ListLike.LazyString
+      System.Process.ListLike.Read
+      System.Process.ListLike.ReadNoThreads
+      System.Process.ListLike.StrictString
+      System.Process.String
+      System.Process.Text
+      System.Process.Text.Lazy
   else
-    Build-depends: process-extras >= 0.2.1
+    Build-depends: process-listlike >= 0.2.1
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
 
@@ -43,9 +57,9 @@ Executable test-tasks
   GHC-Options: -threaded
   Build-Depends: async, base >= 4, bytestring, containers, data-default, mtl, prettyclass, process, showplease, tasks, text
   if flag(local-process-extras)
-    Hs-Source-Dirs: ../process-extras
+    Hs-Source-Dirs: ../process-listlike/src
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-extras >= 0.2.1
+    Build-depends: tasks, process-listlike >= 0.2.1
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
