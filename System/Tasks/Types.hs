@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 -- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
 -- started, their status can be queried, and they can be cancelled.
@@ -20,8 +20,7 @@
 
 module System.Tasks.Types
     ( TaskId
-    , Progress
-    , Result
+    , ProgressAndResult(taskMessage)
     , TopTakes(..)
     , ManagerTakes(..)
     , TaskTakes(..)
@@ -40,14 +39,13 @@ import Debug.Show (V)
 import Text.PrettyPrint.HughesPJClass (Pretty)
 
 #if DEBUG
--- The Result class only exists to add Show as a superclass when debugging.
-class Show result => Result result
-class (Show progress, Pretty (V progress)) => Progress progress
 class (Eq taskid, Ord taskid, Enum taskid, Show taskid) => TaskId taskid
+class (Show progress, Pretty (V progress), Show result) => ProgressAndResult progress result where
+    taskMessage :: progress -> TaskPuts progress result -- ^ Turn a progress value into a message
 #else
-class Result result
-class Progress progress
 class (Eq taskid, Ord taskid, Enum taskid) => TaskId taskid
+class ProgressAndResult progress result where
+    taskMessage :: progress -> TaskPuts progress result
 #endif
 
 data ManagerTakes taskid progress result

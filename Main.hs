@@ -1,20 +1,21 @@
-{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GADTs, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GADTs, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import Control.Concurrent (MVar, putMVar)
-import Control.Exception (throw, ArithException(LossOfPrecision))
+import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision))
 import Control.Monad.State (StateT, get, put, evalStateT)
 import Control.Monad.Trans (lift)
 import Data.Char (isDigit)
 import Data.List (intercalate)
 import Data.Monoid
 import Data.Text.Lazy as Text (Text)
+import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import System.Process (CreateProcess, shell, proc, terminateProcess)
-import System.Process.Chunks (Chunk(Exception, ProcessHandle))
+import System.Process.Chunks (Chunk(..))
 import System.Process.ListLike (ListLikeLazyIO, readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (TaskId, Progress, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask), TaskPuts(..))
+import System.Tasks.Types (TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask), TaskPuts(..))
 import System.Tasks.Pretty ()
 
 #if DEBUG
@@ -28,9 +29,13 @@ ePutStrLn = liftIO . hPutStrLn stderr
 
 type TID = Integer
 instance TaskId TID
-instance Progress (Chunk Text)
+instance ProgressAndResult (Chunk Text) ResultType where
+    taskMessage (Exception e) | fromException e == Just ThreadKilled = TaskCancelled
+    taskMessage (Exception e) = TaskException e
+    taskMessage (Result ExitSuccess) = TaskFinished 0
+    taskMessage (Result (ExitFailure n)) = TaskFinished n
+    taskMessage x = ProcessToManager x
 type ResultType = Int
-instance Result ResultType
 
 main :: IO ()
 main = manager (`evalStateT` (cmds, 1)) keyboard output
