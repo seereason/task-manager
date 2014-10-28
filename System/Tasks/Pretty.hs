@@ -111,6 +111,7 @@ instance Show taskid => Pretty (V (ManagerToTask taskid)) where
 instance (Show taskid, Pretty (V progress), Show result) => Pretty (V (TaskToManager taskid progress result)) where
     pPrint (V (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> pPrint (V x)
     pPrint (V (TaskCancelled i)) = text ("P" <> show i <> ": cancelled")
+    pPrint (V (TaskException i e)) = text ("P" <> show i <> " exception: " <> show e)
     pPrint (V (TaskFinished i result)) = text ("P" <> show i <> " result: " ++ show result)
 
 instance (Show taskid, Pretty (V progress)) => Pretty (V (TaskTakes taskid progress)) where

@@ -180,7 +180,7 @@ task taskId managerTakes taskTakes p = do
         ePutStrLn ("wait -> " ++ show (V e))
 #endif
         throwTo (asyncThreadId a) e
-        putMVar managerTakes (TaskToManager (ProcessToManager taskId (Exception e)))
+        putMVar managerTakes (TaskToManager (TaskException taskId e))
     Right result -> do
         putMVar managerTakes (TaskToManager (TaskFinished taskId result))
     where
@@ -202,8 +202,8 @@ task taskId managerTakes taskTakes p = do
               liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
           ProcessToTask (Exception e) | fromException e == Just ThreadKilled -> -- Process was cancelled
               liftIO $ putMVar managerTakes (TaskToManager (TaskCancelled taskId))
-          ProcessToTask x@(Exception _e) -> -- Some other exception
-              liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+          ProcessToTask (Exception e) -> -- Some other exception
+              liftIO $ putMVar managerTakes (TaskToManager (TaskException taskId e))
           ProcessToTask x -> -- Stdout, Stderr
               do liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
                  loop

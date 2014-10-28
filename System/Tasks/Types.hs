@@ -33,6 +33,7 @@ module System.Tasks.Types
     ) where
 
 import Control.Concurrent (MVar)
+import Control.Exception (SomeException)
 import Data.Set (Set)
 import Debug.Show (V)
 import Text.PrettyPrint.HughesPJClass (Pretty)
@@ -88,6 +89,7 @@ data ManagerToTask taskid
 data TaskToManager taskid progress result
     = ProcessToManager taskid progress
     | TaskFinished taskid result
+    | TaskException taskid SomeException
     | TaskCancelled taskid
 
 -- | The manager has two modes, currently the same as the task status.
