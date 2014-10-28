@@ -34,7 +34,10 @@ instance ProgressAndResult (Chunk Text) ResultType where
     taskMessage (Exception e) = TaskException e
     taskMessage (Result ExitSuccess) = TaskFinished 0
     taskMessage (Result (ExitFailure n)) = TaskFinished n
-    taskMessage x = ProcessToManager x
+    taskMessage x@(ProcessHandle h) = ProcessToManager x
+    taskMessage x@(Stdout _) = ProcessToManager x
+    taskMessage x@(Stderr _) = ProcessToManager x
+    -- taskMessage x = ProcessToManager x
 type ResultType = Int
 
 main :: IO ()
