@@ -14,7 +14,7 @@ import System.Process.Chunks (Chunk(Exception, ProcessHandle))
 import System.Process.ListLike (ListLikeLazyIO, readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (TaskId, Progress, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask))
+import System.Tasks.Types (TaskId, Progress, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask), TaskPuts(..))
 import System.Tasks.Pretty ()
 
 #if DEBUG
@@ -41,10 +41,10 @@ output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
 output (TopTakes (TaskStatus taskid status)) = ePutStrLn $ "TaskStatus " ++ show taskid ++ " " ++ show status
-output (TopTakes (TaskToTop (TaskCancelled taskid))) = ePutStrLn $ "TaskCancelled " ++ show taskid
-output (TopTakes (TaskToTop (TaskException taskid e))) = ePutStrLn $ "TaskException " ++ show taskid ++ " -> " ++ show e
-output (TopTakes (TaskToTop (TaskFinished taskid result))) = ePutStrLn $ "TaskFinished " ++ show taskid ++ " -> " ++ show result
-output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
+output (TopTakes (TaskToTop (TaskPuts taskid TaskCancelled))) = ePutStrLn $ "TaskCancelled " ++ show taskid
+output (TopTakes (TaskToTop (TaskPuts taskid (TaskException e)))) = ePutStrLn $ "TaskException " ++ show taskid ++ " -> " ++ show e
+output (TopTakes (TaskToTop (TaskPuts taskid (TaskFinished result)))) = ePutStrLn $ "TaskFinished " ++ show taskid ++ " -> " ++ show result
+output (TopTakes (TaskToTop (TaskPuts taskid (ProcessToManager chunk)))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
 keyboard :: StateT ([MVar (TaskTakes TID (Chunk Text) ) -> IO ResultType], TID) IO (ManagerTakes TID (Chunk Text) ResultType)

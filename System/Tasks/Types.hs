@@ -29,6 +29,7 @@ module System.Tasks.Types
     , ManagerToTop(..)
     , ManagerToTask(..)
     , TaskToManager(..)
+    , TaskPuts(..)
     , ManagerStatus(..)
     ) where
 
@@ -86,11 +87,13 @@ data ManagerToTask taskid
     = CancelTask taskid
     deriving Eq
 
-data TaskToManager taskid progress result
-    = ProcessToManager taskid progress
-    | TaskFinished taskid result
-    | TaskException taskid SomeException
-    | TaskCancelled taskid
+data TaskToManager taskid progress result = TaskPuts taskid (TaskPuts progress result)
+
+data TaskPuts progress result
+    = ProcessToManager progress
+    | TaskFinished result
+    | TaskException SomeException
+    | TaskCancelled
 
 -- | The manager has two modes, currently the same as the task status.
 -- Normally it keeps running whether there are any running tasks or not,

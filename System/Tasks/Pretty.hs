@@ -38,6 +38,7 @@ deriving instance (Show taskid, Show progress, Show result) => Show (ManagerToTo
 deriving instance Show taskid => Show (ManagerToTask taskid)
 deriving instance (Show taskid, Show progress, Show result) => Show (TaskToManager taskid progress result)
 deriving instance (Show taskid, Show progress, Show result) => Show (TopTakes taskid progress result)
+deriving instance (Show progress, Show result) => Show (TaskPuts progress result)
 deriving instance Show (Chunk Text)
 
 instance Show taskid => Show (TopToManager taskid progress result) where
@@ -109,10 +110,13 @@ instance Show taskid => Pretty (V (ManagerToTask taskid)) where
     pPrint (V x) = text (show x)
 
 instance (Show taskid, Pretty (V progress), Show result) => Pretty (V (TaskToManager taskid progress result)) where
-    pPrint (V (ProcessToManager i x)) = text ("P" <> show i <> ": ") <> pPrint (V x)
-    pPrint (V (TaskCancelled i)) = text ("P" <> show i <> ": cancelled")
-    pPrint (V (TaskException i e)) = text ("P" <> show i <> " exception: " <> show e)
-    pPrint (V (TaskFinished i result)) = text ("P" <> show i <> " result: " ++ show result)
+    pPrint (V (TaskPuts i x)) = text ("P" <> show i <> ": ") <> ppPrint x
+
+instance (Pretty (V progress), Show result) => Pretty (V (TaskPuts progress result)) where
+    pPrint (V (ProcessToManager x)) = pPrint (V x)
+    pPrint (V TaskCancelled) = text "cancelled"
+    pPrint (V (TaskException e)) = text ("exception: " <> show e)
+    pPrint (V (TaskFinished result)) = text ("result: " ++ show result)
 
 instance (Show taskid, Pretty (V progress)) => Pretty (V (TaskTakes taskid progress)) where
     pPrint (V (ManagerToTask x)) = ppPrint (x)
