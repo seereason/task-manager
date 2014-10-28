@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, FlexibleContexts, GADTs, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GADTs, Rank2Types, ScopedTypeVariables, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import Control.Concurrent (MVar, putMVar)
@@ -14,7 +14,7 @@ import System.Process.Chunks (Chunk(Exception, ProcessHandle))
 import System.Process.ListLike (ListLikeLazyIO, readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
-import System.Tasks.Types (TaskId, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask))
+import System.Tasks.Types (TaskId, Progress, Result, ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(ProcessToTask))
 import System.Tasks.Pretty ()
 
 #if DEBUG
@@ -28,6 +28,7 @@ ePutStrLn = liftIO . hPutStrLn stderr
 
 type TID = Integer
 instance TaskId TID
+instance Progress (Chunk Text)
 type ResultType = Int
 instance Result ResultType
 
@@ -35,7 +36,7 @@ main :: IO ()
 main = manager (`evalStateT` (cmds, 1)) keyboard output
 
 -- | The output device
-output :: TopTakes TID ResultType -> IO ()
+output :: TopTakes TID (Chunk Text) ResultType -> IO ()
 output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ "NoSuchTask " ++ show taskid
@@ -45,7 +46,7 @@ output (TopTakes (TaskToTop (TaskFinished taskid result))) = ePutStrLn $ "TaskFi
 output (TopTakes (TaskToTop (ProcessToManager taskid chunk))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
-keyboard :: StateT ([MVar (TaskTakes TID) -> IO ResultType], TID) IO (ManagerTakes TID ResultType)
+keyboard :: StateT ([MVar (TaskTakes TID (Chunk Text) ) -> IO ResultType], TID) IO (ManagerTakes TID (Chunk Text) ResultType)
 keyboard = do
   input <- lift $ getLine
   case input of
@@ -63,10 +64,10 @@ keyboard = do
     x -> ePutStrLn (show x ++ " - expected: t, s, s<digit>, k<digit>, or x") >> keyboard
 
 -- | The sequence of tasks that t will run.
-cmds :: [MVar (TaskTakes TID) -> IO ResultType]
+cmds :: [MVar (TaskTakes TID (Chunk Text)) -> IO ResultType]
 cmds = throwExn : run' countToFive : map run' nekos
 
-throwExn :: MVar (TaskTakes taskid) -> IO Int
+throwExn :: MVar (TaskTakes taskid progress) -> IO Int
 throwExn _ = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
 countToFive :: CreateProcess
 countToFive = shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'"
@@ -77,8 +78,8 @@ neko color speed = proc "oneko" ["-fg", color, "-speed", show speed]
 nekos :: [CreateProcess]
 nekos = map (uncurry neko) (zip (concat (repeat ["red", "green", "blue", "black", "yellow"])) (concat (repeat [12..18])))
 
-run :: (ListLikeLazyIO a c, a ~ Text, TaskId taskid) =>
-       CreateProcess -> a -> MVar (TaskTakes taskid) -> IO ResultType
+run :: (ListLikeLazyIO a c, a ~ Text, progress ~ Chunk Text, TaskId taskid) =>
+       CreateProcess -> a -> MVar (TaskTakes taskid progress) -> IO ResultType
 run cmd input taskTakes =
   do (ProcessHandle _pid : chunks) <- readCreateProcess cmd input
      mapM_ (putMVar taskTakes . ProcessToTask) chunks
@@ -91,6 +92,6 @@ run cmd input taskTakes =
                          _x -> return ()) chunks
      return 123
 
-run' :: TaskId taskid => CreateProcess -> MVar (TaskTakes taskid) -> IO ResultType
+run' :: (TaskId taskid, progress ~ Chunk Text) => CreateProcess -> MVar (TaskTakes taskid progress) -> IO ResultType
 run' cmd taskTakes = run cmd mempty taskTakes
 

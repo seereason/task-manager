@@ -20,6 +20,7 @@
 
 module System.Tasks.Types
     ( TaskId
+    , Progress
     , Result
     , TopTakes(..)
     , ManagerTakes(..)
@@ -28,37 +29,38 @@ module System.Tasks.Types
     , ManagerToTop(..)
     , ManagerToTask(..)
     , TaskToManager(..)
-    , ProcessToTask
     , ManagerStatus(..)
     ) where
 
 import Control.Concurrent (MVar)
 import Data.Set (Set)
-import Data.Text.Lazy as Text (Text)
-import System.Process.Chunks (Chunk(..))
+import Debug.Show (V)
+import Text.PrettyPrint.HughesPJClass (Pretty)
 
 #if DEBUG
 -- The Result class only exists to add Show as a superclass when debugging.
 class Show result => Result result
+class (Show progress, Pretty (V progress)) => Progress progress
 class (Eq taskid, Ord taskid, Enum taskid, Show taskid) => TaskId taskid
 #else
 class Result result
+class Progress progress
 class (Eq taskid, Ord taskid, Enum taskid) => TaskId taskid
 #endif
 
-data ManagerTakes taskid result
-    = TopToManager (TopToManager taskid result)
-    | TaskToManager (TaskToManager taskid result)
+data ManagerTakes taskid progress result
+    = TopToManager (TopToManager taskid progress result)
+    | TaskToManager (TaskToManager taskid progress result)
 
-data TaskTakes taskid
+data TaskTakes taskid progress
     = ManagerToTask (ManagerToTask taskid)
-    | ProcessToTask ProcessToTask
+    | ProcessToTask progress
 
 -- The message types, in order: top <-> manager <-> task <-> process.
 -- There is a type for each direction between each of these four.
 
-data TopToManager taskid result
-    = StartTask taskid (MVar (TaskTakes taskid) -> IO result)
+data TopToManager taskid progress result
+    = StartTask taskid (MVar (TaskTakes taskid progress) -> IO result)
     -- ^ Start a new task.  The client is responsible for generating a
     -- unique taskid for the manager to use.  This simplifies that
     -- task startup protocol - otherwise the client would send the
@@ -70,25 +72,23 @@ data TopToManager taskid result
     | SendTaskStatus taskid
     | TopToTask (ManagerToTask taskid)
 
-newtype TopTakes taskid result = TopTakes (ManagerToTop taskid result)
+newtype TopTakes taskid progress result = TopTakes (ManagerToTop taskid progress result)
 
-data ManagerToTop taskid result
+data ManagerToTop taskid progress result
     = ManagerFinished -- ^ (Eventual) response to ShutDown
     | ManagerStatus (Set taskid) ManagerStatus -- ^ Response to SendManagerStatus
     | NoSuchTask taskid -- ^ Possible response to TopToTask (which currently can only be CancelTask)
     | TaskStatus taskid Bool -- ^ Response to SendTaskStatus
-    | TaskToTop (TaskToManager taskid result)
+    | TaskToTop (TaskToManager taskid progress result)
 
 data ManagerToTask taskid
     = CancelTask taskid
     deriving Eq
 
-data TaskToManager taskid result
-    = ProcessToManager taskid ProcessToTask
+data TaskToManager taskid progress result
+    = ProcessToManager taskid progress
     | TaskFinished taskid result
     | TaskCancelled taskid
-
-type ProcessToTask = Chunk Text
 
 -- | The manager has two modes, currently the same as the task status.
 -- Normally it keeps running whether there are any running tasks or not,

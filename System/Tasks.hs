@@ -31,6 +31,7 @@ import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
+import Data.Text.Lazy (Text)
 import System.Process (ProcessHandle)
 import System.Process.Chunks (Chunk(..))
 import System.Tasks.Types
@@ -45,10 +46,10 @@ import Debug.Console (ePutStrLn) -- atomic debug output
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid result. (MonadIO m, TaskId taskid, Result result) =>
+manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, Progress progress, progress ~ Chunk Text, Result result) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
-        -> (m (ManagerTakes taskid result))  -- ^ return the next message to send to the task manager
-        -> (TopTakes taskid result -> IO ()) -- ^ handle a message delivered by the task manager
+        -> (m (ManagerTakes taskid progress result))  -- ^ return the next message to send to the task manager
+        -> (TopTakes taskid progress result -> IO ()) -- ^ handle a message delivered by the task manager
         -> IO ()
 manager runner putter taker = do
   topTakes <- newEmptyMVar
@@ -77,15 +78,15 @@ manager runner putter taker = do
               _ -> takeLoop in
       takeLoop
 
-data ManagerState taskid
+data ManagerState taskid progress
     = ManagerState
       { managerStatus :: ManagerStatus
-      , mvarMap :: Map taskid (MVar (TaskTakes taskid))
+      , mvarMap :: Map taskid (MVar (TaskTakes taskid progress))
       }
 
-managerLoop :: forall taskid result. (TaskId taskid, Result result) =>
-               MVar (TopTakes taskid result)
-            -> MVar (ManagerTakes taskid result)
+managerLoop :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result) =>
+               MVar (TopTakes taskid progress result)
+            -> MVar (ManagerTakes taskid progress result)
             -> IO ()
 managerLoop topTakes managerTakes = do
 #if DEBUG
@@ -93,7 +94,7 @@ managerLoop topTakes managerTakes = do
 #endif
   evalStateT loop (ManagerState {managerStatus = Running, mvarMap = mempty})
     where
-      loop :: StateT (ManagerState taskid) IO ()
+      loop :: StateT (ManagerState taskid progress) IO ()
       loop = do
         st <- get
         case (managerStatus st, Map.null (mvarMap st)) of
@@ -162,10 +163,10 @@ data TaskState result
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: forall taskid result. (TaskId taskid, Result result) =>
+task :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result) =>
         taskid
-     -> MVar (ManagerTakes taskid result)
-     -> MVar (TaskTakes taskid)
+     -> MVar (ManagerTakes taskid progress result)
+     -> MVar (TaskTakes taskid progress)
      -> IO result
      -> IO ()
 task taskId managerTakes taskTakes p = do
