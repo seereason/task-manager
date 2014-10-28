@@ -23,9 +23,9 @@ module System.Tasks
     , module System.Tasks.Types
     ) where
 
-import Control.Concurrent (forkIO, MVar, newEmptyMVar, killThread, throwTo)
+import Control.Concurrent (forkIO, MVar, newEmptyMVar, throwTo)
 import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, waitCatch)
-import Control.Exception (fromException, SomeException, AsyncException(ThreadKilled), throw, try)
+import Control.Exception (fromException, AsyncException(ThreadKilled))
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
@@ -56,30 +56,26 @@ manager runner putter taker = do
   -- Run messages between the task manager and the tasks.  The reason
   -- I use succ def instead of def is so that the first task will be 1
   -- rather than 0 if taskid is an Integral.
-  _ <- forkIO $ managerLoop topTakes managerTakes
+  _ <- async $ managerLoop topTakes managerTakes
   -- Messages coming from the input device.  This will run forever, it
   -- needs to be killed when the task manager is finished.
-  inputThread <- forkIO $ runner (putLoop managerTakes)
-  -- Messages from the task manager going to the client via the taker
-  -- argument.  This runs in the main thread and exits when the
-  -- ManagerFinished message is received.
-  takeLoop topTakes inputThread
-    where
-      takeLoop topTakes tid =
-          do msg <- takeMVar topTakes
-             taker msg
-             case msg of
-               TopTakes ManagerFinished -> killThread tid
-               _ -> takeLoop topTakes tid
-
-      -- Keep sending messages to the client until...?
-      putLoop :: MVar (ManagerTakes taskid result) -> m ()
-      putLoop managerTakes =
-          do msg <- putter
-             liftIO $ putMVar managerTakes msg
-             case msg of
-               -- TopToManager ShutDown -> return ()
-               _ -> putLoop managerTakes
+  let putLoop = do
+        msg <- putter
+        liftIO $ putMVar managerTakes msg
+        case msg of
+          -- TopToManager ShutDown -> return ()
+          _ -> putLoop
+  async (runner putLoop) >>= \ inputThread ->
+      -- Messages from the task manager going to the client via the taker
+      -- argument.  This runs in the main thread and exits when the
+      -- ManagerFinished message is received.
+      let takeLoop = do
+            msg <- takeMVar topTakes
+            taker msg
+            case msg of
+              TopTakes ManagerFinished -> cancel inputThread
+              _ -> takeLoop in
+      takeLoop
 
 data ManagerState taskid
     = ManagerState
@@ -107,7 +103,7 @@ managerLoop topTakes managerTakes = do
                case msg of
                  TopToManager (StartTask taskId run) -> do
                    taskTakes <- liftIO newEmptyMVar
-                   _tid <- liftIO $ forkIO $ task taskId managerTakes taskTakes (run taskTakes)
+                   _a <- liftIO $ async $ forkIO $ task taskId managerTakes taskTakes (run taskTakes)
                    put (st {mvarMap = Map.insert taskId taskTakes (mvarMap st)})
                    -- We should probably send back a message here saying the task was started
                  TopToManager SendManagerStatus -> do -- Send top the manager status (Running or Exiting)
