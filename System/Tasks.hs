@@ -32,6 +32,7 @@ import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
 import Data.Monoid
 import Data.Set (fromList)
 import Data.Text.Lazy (Text)
+import System.Exit (ExitCode(..))
 import System.Process (ProcessHandle)
 import System.Process.Chunks (Chunk(..))
 import System.Tasks.Types
@@ -46,7 +47,7 @@ import Debug.Console (ePutStrLn) -- atomic debug output
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
-manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, Progress progress, progress ~ Chunk Text, Result result) =>
+manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, Progress progress, progress ~ Chunk Text, Result result, result ~ Int) =>
            (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid progress result))  -- ^ return the next message to send to the task manager
         -> (TopTakes taskid progress result -> IO ()) -- ^ handle a message delivered by the task manager
@@ -84,7 +85,7 @@ data ManagerState taskid progress
       , mvarMap :: Map taskid (MVar (TaskTakes taskid progress))
       }
 
-managerLoop :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result) =>
+managerLoop :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result, result ~ Int) =>
                MVar (TopTakes taskid progress result)
             -> MVar (ManagerTakes taskid progress result)
             -> IO ()
@@ -163,7 +164,7 @@ data TaskState result
 -- from the manager and the process, and sends TaskOutput messages
 -- back to the manager.  It forks the process into the background so
 -- it can receive messages from it and the task coordinator.
-task :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result) =>
+task :: forall taskid progress result. (TaskId taskid, progress ~ Chunk Text, Result result, result ~ Int) =>
         taskid
      -> MVar (ManagerTakes taskid progress result)
      -> MVar (TaskTakes taskid progress)
@@ -198,8 +199,10 @@ task taskId managerTakes taskTakes p = do
               do liftIO $ cancel (processAsync st)
                  -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
-          ProcessToTask x@(Result _) ->  -- Process is finished, so stop looping
-              liftIO $ putMVar managerTakes (TaskToManager (ProcessToManager taskId x))
+          ProcessToTask (Result ExitSuccess) ->  -- Process is finished, so stop looping
+              liftIO $ putMVar managerTakes (TaskToManager (TaskFinished taskId 0))
+          ProcessToTask (Result (ExitFailure n)) ->  -- Process is finished, so stop looping
+              liftIO $ putMVar managerTakes (TaskToManager (TaskFinished taskId n))
           ProcessToTask (Exception e) | fromException e == Just ThreadKilled -> -- Process was cancelled
               liftIO $ putMVar managerTakes (TaskToManager (TaskCancelled taskId))
           ProcessToTask (Exception e) -> -- Some other exception
