@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wall #-}
 
 import Control.Concurrent (MVar, putMVar)
-import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision))
+import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision), try)
 import Control.Monad.State (StateT, get, put, evalStateT)
 import Control.Monad.Trans (lift)
 import Data.Char (isDigit)
@@ -21,6 +21,7 @@ import System.Tasks.Pretty ()
 #if DEBUG
 import Debug.Console (ePutStrLn)
 #else
+-- Use hPutStrLn instead of the ePutStrLn in Debug.Console.
 import Control.Monad.Trans (MonadIO, liftIO)
 import System.IO (hPutStrLn, stderr)
 ePutStrLn :: MonadIO m => String -> m ()
@@ -55,7 +56,7 @@ output (TopTakes (TaskToTop (TaskPuts taskid (TaskFinished result)))) = ePutStrL
 output (TopTakes (TaskToTop (TaskPuts taskid (ProcessToManager chunk)))) = ePutStrLn $ "ProcessOutput " ++ show taskid ++ " " ++ show chunk
 
 -- | The input device
-keyboard :: StateT ([MVar (TaskTakes TID (Chunk Text) ) -> IO ResultType], TID) IO (ManagerTakes TID (Chunk Text) ResultType)
+keyboard :: StateT ([MVar (TaskTakes TID (Chunk Text)) -> IO ResultType], TID) IO (ManagerTakes TID (Chunk Text) ResultType)
 keyboard = do
   input <- lift $ getLine
   case input of
@@ -76,8 +77,10 @@ keyboard = do
 cmds :: [MVar (TaskTakes TID (Chunk Text)) -> IO ResultType]
 cmds = throwExn : run' countToFive : map run' nekos
 
-throwExn :: MVar (TaskTakes taskid progress) -> IO Int
-throwExn _ = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
+throwExn :: MVar (TaskTakes taskid (Chunk Text)) -> IO Int
+throwExn taskTakes = try (ePutStrLn "About to throw an exception" >> throw LossOfPrecision) >>=
+                     either (\ e -> putMVar taskTakes (ProcessToTask (Exception e)) >> throw e)
+                            (\ v -> putMVar taskTakes (ProcessToTask (Result v)) >> return 0)
 countToFive :: CreateProcess
 countToFive = shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'"
 million :: CreateProcess

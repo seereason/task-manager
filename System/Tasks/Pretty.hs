@@ -7,6 +7,7 @@ module System.Tasks.Pretty
       MVarAction
     , System.Tasks.Pretty.takeMVar
     , System.Tasks.Pretty.putMVar
+    , ppDisplay
 #endif
     ) where
 
@@ -16,6 +17,7 @@ import System.Tasks.Types
 
 #if DEBUG
 import Control.Concurrent as C (MVar, putMVar, takeMVar)
+import Control.Exception (SomeException)
 import Data.Monoid ((<>))
 import Data.Text.Lazy (Text)
 import Debug.Console (ePutStrLn)
@@ -115,7 +117,7 @@ instance (Show taskid, Pretty (V progress), Show result) => Pretty (V (TaskToMan
 instance (Pretty (V progress), Show result) => Pretty (V (TaskPuts progress result)) where
     pPrint (V (ProcessToManager x)) = pPrint (V x)
     pPrint (V TaskCancelled) = text "cancelled"
-    pPrint (V (TaskException e)) = text ("exception: " <> show e)
+    pPrint (V (TaskException e)) = text "exception: " <> ppPrint e
     pPrint (V (TaskFinished result)) = text ("result: " ++ show result)
 
 instance (Show taskid, Pretty (V progress)) => Pretty (V (TaskTakes taskid progress)) where
@@ -128,4 +130,7 @@ instance Pretty (V CreateProcess) where
 instance Pretty (V (Chunk Text)) where
     pPrint (V (Exception e)) = text (show (V e))
     pPrint (V x) = text (show x)
+
+instance Pretty (V SomeException) where
+    pPrint = text . show
 #endif

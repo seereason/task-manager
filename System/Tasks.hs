@@ -87,7 +87,7 @@ managerLoop :: forall taskid progress result. (TaskId taskid, ProgressAndResult 
             -> IO ()
 managerLoop topTakes managerTakes = do
 #if DEBUG
-  ePutStrLn "top\t\tmanager\t\ttask\t\tprocess"
+  ePutStrLn "\ttop\t\tmanager\t\t\ttask\t\t\tprocess"
 #endif
   evalStateT loop (ManagerState {managerStatus = Running, mvarMap = mempty})
     where
@@ -160,6 +160,8 @@ task :: forall taskid progress result. (TaskId taskid, ProgressAndResult progres
      -> IO ()
 task taskId managerTakes taskTakes p = do
   a <- async p
+  -- Here we are counting on the task sending at least one message
+  -- that results in the loop exiting.
   evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
   r <- waitCatch a
   case r of
@@ -171,12 +173,15 @@ task taskId managerTakes taskTakes p = do
         throwTo (asyncThreadId a) e
         putMVar managerTakes (TaskToManager (TaskPuts taskId (TaskException e)))
     Right result -> do
+        ePutStrLn ("result -> " ++ show result)
         putMVar managerTakes (TaskToManager (TaskPuts taskId (TaskFinished result)))
     where
       -- Read and send messages from the process until we see the final result
       loop :: StateT (TaskState result) IO ()
       loop = do
         st <- get
+        -- At least one terminating message needs to come from the
+        -- process - TaskFinish, TaskCancelled, TaskException.
         msg <- liftIO $ takeMVar taskTakes
         case msg of
           ManagerToTask (CancelTask _) ->
