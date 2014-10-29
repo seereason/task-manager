@@ -75,10 +75,10 @@ manager runner putter taker = do
               _ -> takeLoop in
       takeLoop
 
-data ManagerState taskid progress
+data ManagerState taskid progress result
     = ManagerState
       { managerStatus :: ManagerStatus
-      , mvarMap :: Map taskid (MVar (TaskTakes taskid progress))
+      , mvarMap :: Map taskid (MVar (TaskTakes taskid progress result))
       }
 
 managerLoop :: forall taskid progress result. (TaskId taskid, ProgressAndResult progress result) =>
@@ -91,7 +91,7 @@ managerLoop topTakes managerTakes = do
 #endif
   evalStateT loop (ManagerState {managerStatus = Running, mvarMap = mempty})
     where
-      loop :: StateT (ManagerState taskid progress) IO ()
+      loop :: StateT (ManagerState taskid progress result) IO ()
       loop = do
         st <- get
         case (managerStatus st, Map.null (mvarMap st)) of
@@ -117,22 +117,22 @@ managerLoop topTakes managerTakes = do
                      Just taskTakes -> liftIO $ putMVar taskTakes (ManagerToTask (CancelTask taskId))
                      Nothing -> liftIO $ putMVar topTakes (TopTakes (NoSuchTask taskId))
 
-                 TaskToManager x@(TaskPuts taskId (TaskFinished _result)) -> do
+                 TaskToManager x@(TaskPuts taskId (IOFinished _result)) -> do
                    -- The task completed and delivered its result value.
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
-                 TaskToManager x@(TaskPuts taskId TaskCancelled) -> do
+                 TaskToManager x@(TaskPuts taskId IOCancelled) -> do
                    -- Process was sent a cancel (thread killed exception)
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
-                 TaskToManager x@(TaskPuts taskId (TaskException _)) -> do
+                 TaskToManager x@(TaskPuts taskId (IOException _)) -> do
                    -- Process was sent a cancel (thread killed exception)
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
                    put (st { mvarMap = Map.delete taskId (mvarMap st) })
 
-                 TaskToManager x@(TaskPuts _ (ProcessToManager _)) -> do
+                 TaskToManager x@(TaskPuts _ (IOProgress _)) -> do
                    -- Forward messages to top
                    liftIO $ putMVar topTakes (TopTakes (TaskToTop x))
 
@@ -155,7 +155,7 @@ data TaskState result
 task :: forall taskid progress result. (TaskId taskid, ProgressAndResult progress result) =>
         taskid
      -> MVar (ManagerTakes taskid progress result)
-     -> MVar (TaskTakes taskid progress)
+     -> MVar (TaskTakes taskid progress result)
      -> IO result
      -> IO ()
 task taskId managerTakes taskTakes p = do
@@ -171,10 +171,12 @@ task taskId managerTakes taskTakes p = do
         ePutStrLn ("wait -> " ++ show (V e))
 #endif
         throwTo (asyncThreadId a) e
-        putMVar managerTakes (TaskToManager (TaskPuts taskId (TaskException e)))
+        putMVar managerTakes (TaskToManager (TaskPuts taskId (IOException e)))
     Right result -> do
+#if DEBUG
         ePutStrLn ("result -> " ++ show result)
-        putMVar managerTakes (TaskToManager (TaskPuts taskId (TaskFinished result)))
+#endif
+        putMVar managerTakes (TaskToManager (TaskPuts taskId (IOFinished result)))
     where
       -- Read and send messages from the process until we see the final result
       loop :: StateT (TaskState result) IO ()
@@ -188,9 +190,11 @@ task taskId managerTakes taskTakes p = do
               do liftIO $ cancel (processAsync st)
                  -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
-          ProcessToTask x ->
+          IOToTask (IOProgress x) ->
               case taskMessage x of
-                m@(ProcessToManager _) ->
+                m@(IOProgress _) ->
                     liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m))) >> loop
                 m ->
+                    liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+          IOToTask m ->
                     liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))

@@ -28,39 +28,39 @@ module System.Tasks.Types
     , ManagerToTop(..)
     , ManagerToTask(..)
     , TaskToManager(..)
-    , TaskPuts(..)
+    , IOPuts(..)
     , ManagerStatus(..)
     ) where
 
 import Control.Concurrent (MVar)
 import Control.Exception (SomeException)
 import Data.Set (Set)
-import Debug.Show (V)
-import Text.PrettyPrint.HughesPJClass (Pretty)
 
 #if DEBUG
+import Debug.Show (V)
+import Text.PrettyPrint.HughesPJClass (Pretty)
 class (Eq taskid, Ord taskid, Enum taskid, Show taskid) => TaskId taskid
 class (Show progress, Pretty (V progress), Show result) => ProgressAndResult progress result where
-    taskMessage :: progress -> TaskPuts progress result -- ^ Turn a progress value into a message
+    taskMessage :: progress -> IOPuts progress result -- ^ Turn a progress value into a message
 #else
 class (Eq taskid, Ord taskid, Enum taskid) => TaskId taskid
 class ProgressAndResult progress result where
-    taskMessage :: progress -> TaskPuts progress result
+    taskMessage :: progress -> IOPuts progress result
 #endif
 
 data ManagerTakes taskid progress result
     = TopToManager (TopToManager taskid progress result)
     | TaskToManager (TaskToManager taskid progress result)
 
-data TaskTakes taskid progress
+data TaskTakes taskid progress result
     = ManagerToTask (ManagerToTask taskid)
-    | ProcessToTask progress
+    | IOToTask (IOPuts progress result)
 
 -- The message types, in order: top <-> manager <-> task <-> process.
 -- There is a type for each direction between each of these four.
 
 data TopToManager taskid progress result
-    = StartTask taskid (MVar (TaskTakes taskid progress) -> IO result)
+    = StartTask taskid (MVar (TaskTakes taskid progress result) -> IO result)
     -- ^ Start a new task.  The client is responsible for generating a
     -- unique taskid for the manager to use.  This simplifies that
     -- task startup protocol - otherwise the client would send the
@@ -85,13 +85,13 @@ data ManagerToTask taskid
     = CancelTask taskid
     deriving Eq
 
-data TaskToManager taskid progress result = TaskPuts taskid (TaskPuts progress result)
+data TaskToManager taskid progress result = TaskPuts taskid (IOPuts progress result)
 
-data TaskPuts progress result
-    = ProcessToManager progress
-    | TaskFinished result
-    | TaskException SomeException
-    | TaskCancelled
+data IOPuts progress result
+    = IOProgress progress
+    | IOFinished result
+    | IOException SomeException
+    | IOCancelled
 
 -- | The manager has two modes, currently the same as the task status.
 -- Normally it keeps running whether there are any running tasks or not,
