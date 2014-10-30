@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GADTs, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
-import Control.Concurrent (MVar, putMVar)
-import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision), try)
+import Control.Concurrent (MVar)
+import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision))
 import Control.Monad.State (StateT, get, put, evalStateT)
 import Control.Monad.Trans (lift)
 import Data.Char (isDigit)
@@ -14,14 +14,14 @@ import System.Process (shell, proc, ProcessHandle, terminateProcess)
 import System.Process.Chunks (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
-import System.Tasks (manager)
-import System.Tasks.Types (TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(IOToTask), IOPuts(..))
+import System.Tasks (runIO, runProgressIO, manager,
+                     TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..),
+                     TaskToManager(..), TaskTakes, IOPuts(..))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 #if DEBUG
 import Debug.Console (ePutStrLn)
 import Debug.Show (V(V))
-import System.Tasks.Pretty (ppDisplay)
 #else
 -- Use hPutStrLn instead of the ePutStrLn in Debug.Console.
 import Control.Monad.Trans (MonadIO, liftIO)
@@ -30,8 +30,27 @@ ePutStrLn :: MonadIO m => String -> m ()
 ePutStrLn = liftIO . hPutStrLn stderr
 #endif
 
+-- | The type used to identify tasks in this example
 type TID = Integer
 instance TaskId TID
+-- | The type returned by tasks in this example
+type ResultType = Int
+-- | The type of progress messages output by tasks in this example
+type ProgressType = Chunk Text
+
+-- The message types passed to (taken by) the three main components
+-- using MVars:
+--   1. Top (the client of the task manager)
+--   2. Manager (the thread that coordinates all the task)
+--   3. Task (the thread that coordinates a single IO task.)
+type ToTop = TopTakes TID (Chunk Text) ResultType
+type ToTask = TaskTakes TID (Chunk Text) ResultType
+type ToManager = ManagerTakes TID (Chunk Text) ResultType
+
+-- | We must define an instance of ProgressAndResult to be able to
+-- receive progress messages from IO tasks.  The taskMessage method
+-- returns a value of type @IOPuts progress result@, which can easily
+-- be turned into a message to the task wrapper.
 instance ProgressAndResult (Chunk Text) ResultType where
     taskMessage (Exception e) | fromException e == Just ThreadKilled = IOCancelled
     taskMessage (Exception e) = IOException e
@@ -41,10 +60,6 @@ instance ProgressAndResult (Chunk Text) ResultType where
     taskMessage x@(Stdout _) = IOProgress x
     taskMessage x@(Stderr _) = IOProgress x
     -- taskMessage x = ProcessToManager x
-type ResultType = Int
-
-main :: IO ()
-main = manager (`evalStateT` (ioTasks, 1)) keyboard output
 
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
@@ -57,8 +72,9 @@ instance Pretty (V (Chunk Text)) where
     pPrint (V x) = text (show x)
 #endif
 
--- | The output device
-output :: TopTakes TID (Chunk Text) ResultType -> IO ()
+-- | The output device in this example just sends the messages it
+-- receives to the console.
+output :: ToTop -> IO ()
 output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
 output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
 output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ show taskid ++ ": NoSuchTask"
@@ -68,8 +84,9 @@ output (TopTakes (TaskToTop (TaskPuts taskid (IOException e)))) = ePutStrLn $ sh
 output (TopTakes (TaskToTop (TaskPuts taskid (IOFinished result)))) = ePutStrLn $ show taskid ++ ": IOFinished " ++ show result
 output (TopTakes (TaskToTop (TaskPuts taskid (IOProgress chunk)))) = ePutStrLn $ show taskid ++ ": IOProgress " ++ show chunk
 
--- | The input device
-keyboard :: StateT ([MVar (TaskTakes TID (Chunk Text) ResultType) -> IO ()], TID) IO (ManagerTakes TID (Chunk Text) ResultType)
+-- | The input device maps several keyboard inputs to messages that
+-- will be sent to the task manager.
+keyboard :: StateT ([MVar ToTask -> IO ()], TID) IO ToManager
 keyboard = do
   input <- lift $ getLine
   case input of
@@ -96,44 +113,26 @@ ioTasks :: (taskid ~ TID, progress ~ Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
 ioTasks = runIO throwExn : map runProgressIO (countToFive : countToFive' : nekos)
 
+-- | Set up a state monad to manage the allocation of task ids, and to
+-- allow the "t" command to cycle through the list of tasks to be run.
+main :: IO ()
+main = manager (`evalStateT` (ioTasks, 1)) keyboard output
+
+-- The remaining definitions are IO tasks the example runs.
 throwExn :: IO result
 throwExn = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
 
-runIO :: TaskId taskid => IO result -> MVar (TaskTakes taskid progress result) -> IO ()
-runIO io taskTakes =
-    try io >>= either (\ e -> putMVar taskTakes (IOToTask (IOException e)))
-                      (\ r -> putMVar taskTakes (IOToTask (IOFinished r)))
-
-runProgressIO :: forall taskid progress result. ProgressAndResult progress result =>
-                 IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
-runProgressIO io taskTakes =
-    io >>= mapM_ doChunk
-    where
-      doChunk :: progress -> IO ()
-      doChunk x =
-          case (taskMessage x :: IOPuts progress result) of
-            m@IOCancelled ->
-                do -- Notify the manager that the io was cancelled
-                   putMVar taskTakes $ IOToTask m
-                   -- Raise the ThreadKilled exception that was
-                   -- delivered as a chunk.
-                   throw ThreadKilled
-            m@(IOException e) ->
-                do -- Notify the manager that the io was cancelled
-                   putMVar taskTakes $ IOToTask m
-                   throw e
-            m ->
-                do ePutStrLn ("Chunk: " ++ ppDisplay x)
-                   putMVar taskTakes $ IOToTask $ m
-
--- This needs to send a task cancelled message
+-- 'readCreateProcess' catches all exceptions and returns them as
+-- Chunk values in the output list.  This scans through the chunks
+-- throws any exceptions it finds.  (This needs to send a task cancelled
+-- message.)  (This seems to be strict, why?)
 throwChunks :: [Chunk Text] -> IO [Chunk Text]
 throwChunks xs =
-    evalStateT (mapM throwChunk xs) Nothing
+    evalStateT (mapM_ throwChunk xs) Nothing >> return xs
     where throwChunk :: Chunk Text -> StateT (Maybe ProcessHandle) IO (Chunk Text)
           throwChunk x@(ProcessHandle h) = put (Just h) >> return x
           throwChunk (Exception e) = do
-            lift (ePutStrLn ("throwChunk " ++ show e))
+            -- lift (ePutStrLn ("throwChunk " ++ show e))
             -- Should the ThreadKilled exception just below kill the
             -- process?  It doesn't seem to, hence this terminateProcess.
             get >>= maybe (return ()) (lift . terminateProcess)
