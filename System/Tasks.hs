@@ -189,11 +189,8 @@ task taskId managerTakes taskTakes p = do
               do liftIO $ cancel (processAsync st)
                  -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
-          IOToTask (IOProgress x) ->
-              case taskMessage x of
-                m@(IOProgress _) ->
-                    liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m))) >> loop
-                m ->
-                    liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+          IOToTask m@(IOProgress _) ->
+              do liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+                 loop
           IOToTask m ->
                     liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
