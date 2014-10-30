@@ -44,7 +44,7 @@ import Control.Concurrent (putMVar, takeMVar)
 #endif
 
 manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, ProgressAndResult progress result) =>
-           (forall a. m a -> IO a)    -- ^ Run the monad transformer required by the putter
+           (m () -> IO ())    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid progress result))  -- ^ return the next message to send to the task manager
         -> (TopTakes taskid progress result -> IO ()) -- ^ handle a message delivered by the task manager
         -> IO ()
@@ -141,7 +141,7 @@ managerLoop topTakes managerTakes = do
 data TaskState result
     = TaskState
       { processHandle :: Maybe ProcessHandle
-      , processAsync :: Async result
+      , processAsync :: Async ()
       -- ^ This is not available until the process sends it
       -- back to the task manager after being started.
       }
@@ -156,7 +156,7 @@ task :: forall taskid progress result. (TaskId taskid, ProgressAndResult progres
         taskid
      -> MVar (ManagerTakes taskid progress result)
      -> MVar (TaskTakes taskid progress result)
-     -> IO result
+     -> IO ()
      -> IO ()
 task taskId managerTakes taskTakes p = do
   a <- async p
@@ -172,11 +172,10 @@ task taskId managerTakes taskTakes p = do
 #endif
         throwTo (asyncThreadId a) e
         putMVar managerTakes (TaskToManager (TaskPuts taskId (IOException e)))
-    Right result -> do
-#if DEBUG
-        ePutStrLn ("result -> " ++ show result)
-#endif
-        putMVar managerTakes (TaskToManager (TaskPuts taskId (IOFinished result)))
+    Right () -> do
+      -- Some sort of completion message should already have been sent
+      return ()
+      -- putMVar managerTakes (TaskToManager (TaskPuts taskId (IOFinished result)))
     where
       -- Read and send messages from the process until we see the final result
       loop :: StateT (TaskState result) IO ()

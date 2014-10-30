@@ -60,7 +60,7 @@ data TaskTakes taskid progress result
 -- There is a type for each direction between each of these four.
 
 data TopToManager taskid progress result
-    = StartTask taskid (MVar (TaskTakes taskid progress result) -> IO result)
+    = StartTask taskid (MVar (TaskTakes taskid progress result) -> IO ())
     -- ^ Start a new task.  The client is responsible for generating a
     -- unique taskid for the manager to use.  This simplifies that
     -- task startup protocol - otherwise the client would send the
