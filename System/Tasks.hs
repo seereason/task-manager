@@ -23,8 +23,8 @@ module System.Tasks
     , module System.Tasks.Types
     ) where
 
-import Control.Concurrent (forkIO, MVar, newEmptyMVar, throwTo)
-import Control.Concurrent.Async (Async, async, asyncThreadId, cancel, waitCatch)
+import Control.Concurrent (forkIO, MVar, newEmptyMVar)
+import Control.Concurrent.Async (Async, async, cancel, waitCatch)
 import Control.Monad.State (StateT, evalStateT, get, put)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Map as Map (Map, insert, toList, delete, lookup, null, keys, member)
@@ -158,19 +158,22 @@ task :: forall taskid progress result. (TaskId taskid, ProgressAndResult progres
      -> MVar (TaskTakes taskid progress result)
      -> IO ()
      -> IO ()
-task taskId managerTakes taskTakes p = do
-  a <- async p
+task taskId managerTakes taskTakes io = do
+  a <- async io
   -- Here we are counting on the task sending at least one message
   -- that results in the loop exiting.
   evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
   r <- waitCatch a
   case r of
     Left e -> do
-        -- This is not ever being executed - why?
 #if DEBUG
+        -- This happens after P2 is cancelled, with BlockedIndefinitelyOnMVar,
+        -- presumably because P2 already received a cancel and isn't taking.
+        -- The process is still putting messages.
         ePutStrLn ("wait -> " ++ show (V e))
 #endif
-        throwTo (asyncThreadId a) e
+        -- Uh, if we already did a wait isn't this thread gone?
+        -- throwTo (asyncThreadId a) e
         putMVar managerTakes (TaskToManager (TaskPuts taskId (IOException e)))
     Right () -> do
       -- Some sort of completion message should already have been sent
@@ -186,7 +189,8 @@ task taskId managerTakes taskTakes p = do
         msg <- liftIO $ takeMVar taskTakes
         case msg of
           ManagerToTask (CancelTask _) ->
-              do liftIO $ cancel (processAsync st)
+              do -- This throws a ThreadKilled exception in the io thread.
+                 liftIO $ cancel (processAsync st)
                  -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
                  loop
           IOToTask m@(IOProgress _) ->

@@ -10,18 +10,18 @@ import Data.List (intercalate)
 import Data.Monoid
 import Data.Text.Lazy as Text (Text)
 import System.Exit (ExitCode(ExitSuccess, ExitFailure))
-import System.Process (CreateProcess, shell, proc, ProcessHandle, terminateProcess)
+import System.Process (shell, proc, ProcessHandle, terminateProcess)
 import System.Process.Chunks (Chunk(..))
-import System.Process.ListLike (ListLikeLazyIO, readCreateProcess)
+import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (manager)
 import System.Tasks.Types (TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..), TaskToManager(..), TaskTakes(IOToTask), IOPuts(..))
-import System.Tasks.Pretty (ppDisplay)
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 #if DEBUG
 import Debug.Console (ePutStrLn)
 import Debug.Show (V(V))
+import System.Tasks.Pretty (ppDisplay)
 #else
 -- Use hPutStrLn instead of the ePutStrLn in Debug.Console.
 import Control.Monad.Trans (MonadIO, liftIO)
@@ -44,7 +44,7 @@ instance ProgressAndResult (Chunk Text) ResultType where
 type ResultType = Int
 
 main :: IO ()
-main = manager (`evalStateT` (cmds, 1)) keyboard output
+main = manager (`evalStateT` (ioTasks, 1)) keyboard output
 
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
@@ -90,10 +90,11 @@ keyboard = do
     -- error
     x -> ePutStrLn (show x ++ " - expected: t, a, e, s, s<digit>, k<digit>, or x") >> keyboard
 
--- | The sequence of tasks that t will run.
-cmds :: (taskid ~ TID, progress ~ Chunk Text, result ~ ResultType) =>
-        [MVar (TaskTakes taskid progress result) -> IO ()]
-cmds = runIO throwExn : map runProgressIO (countToFive : countToFive' : nekos)
+-- | The sequence of IO operations that the "t" command will run,
+-- wrapped up to communicate with a task thread.
+ioTasks :: (taskid ~ TID, progress ~ Chunk Text, result ~ ResultType) =>
+           [MVar (TaskTakes taskid progress result) -> IO ()]
+ioTasks = runIO throwExn : map runProgressIO (countToFive : countToFive' : nekos)
 
 throwExn :: IO result
 throwExn = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
@@ -125,6 +126,7 @@ runProgressIO io taskTakes =
                 do ePutStrLn ("Chunk: " ++ ppDisplay x)
                    putMVar taskTakes $ IOToTask $ m
 
+-- This needs to send a task cancelled message
 throwChunks :: [Chunk Text] -> IO [Chunk Text]
 throwChunks xs =
     evalStateT (mapM throwChunk xs) Nothing
@@ -132,6 +134,8 @@ throwChunks xs =
           throwChunk x@(ProcessHandle h) = put (Just h) >> return x
           throwChunk (Exception e) = do
             lift (ePutStrLn ("throwChunk " ++ show e))
+            -- Should the ThreadKilled exception just below kill the
+            -- process?  It doesn't seem to, hence this terminateProcess.
             get >>= maybe (return ()) (lift . terminateProcess)
             throw e
           throwChunk x = return x
@@ -139,7 +143,9 @@ throwChunks xs =
 countToFive :: IO [Chunk Text]
 countToFive = readCreateProcess (shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'") mempty
 
--- Re-throw any exceptions that were caught
+-- Re-throw any exceptions that were caught.  If this is killed it
+-- gets left in the task map.  After that, manager shutdown blocks.
+-- Also, all of the output from this comes out at once.
 countToFive' :: IO [Chunk Text]
 countToFive' = readCreateProcess (shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'") mempty >>=
                throwChunks
