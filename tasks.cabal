@@ -50,7 +50,7 @@ Library
       System.Process.Text
       System.Process.Text.Lazy
   else
-    Build-depends: process-listlike >= 0.2.1
+    Build-depends: process-listlike >= 0.11
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease
@@ -64,7 +64,7 @@ Executable test-tasks
     Hs-Source-Dirs: ../process-listlike/src
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-listlike >= 0.2.1
+    Build-depends: tasks, process-listlike >= 0.11
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease

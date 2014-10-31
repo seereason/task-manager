@@ -11,7 +11,8 @@ import Data.Monoid
 import Data.Text.Lazy as Text (Text)
 import System.Exit (ExitCode(ExitSuccess, ExitFailure))
 import System.Process (shell, proc, ProcessHandle, terminateProcess)
-import System.Process.Chunks (Chunk(..))
+import qualified System.Process.Chunks as C (Chunk(..))
+import qualified System.Process.ChunkE as E (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (runIO, runProgressIO, manager,
@@ -36,39 +37,39 @@ instance TaskId TID
 -- | The type returned by tasks in this example
 type ResultType = Int
 -- | The type of progress messages output by tasks in this example
-type ProgressType = Chunk Text
+type ProgressType = C.Chunk Text
 
 -- The message types passed to (taken by) the three main components
 -- using MVars:
 --   1. Top (the client of the task manager)
 --   2. Manager (the thread that coordinates all the task)
 --   3. Task (the thread that coordinates a single IO task.)
-type ToTop = TopTakes TID (Chunk Text) ResultType
-type ToTask = TaskTakes TID (Chunk Text) ResultType
-type ToManager = ManagerTakes TID (Chunk Text) ResultType
+type ToTop = TopTakes TID (C.Chunk Text) ResultType
+type ToTask = TaskTakes TID (C.Chunk Text) ResultType
+type ToManager = ManagerTakes TID (C.Chunk Text) ResultType
 
 -- | We must define an instance of ProgressAndResult to be able to
 -- receive progress messages from IO tasks.  The taskMessage method
 -- returns a value of type @IOPuts progress result@, which can easily
 -- be turned into a message to the task wrapper.
-instance ProgressAndResult (Chunk Text) ResultType where
-    taskMessage (Exception e) | fromException e == Just ThreadKilled = IOCancelled
-    taskMessage (Exception e) = IOException e
-    taskMessage (Result ExitSuccess) = IOFinished 0
-    taskMessage (Result (ExitFailure n)) = IOFinished n
-    taskMessage x@(ProcessHandle _h) = IOProgress x
-    taskMessage x@(Stdout _) = IOProgress x
-    taskMessage x@(Stderr _) = IOProgress x
+instance ProgressAndResult (C.Chunk Text) ResultType where
+    -- taskMessage (Exception e) | fromException e == Just ThreadKilled = IOCancelled
+    -- taskMessage (Exception e) = IOException e
+    taskMessage (C.Result ExitSuccess) = IOFinished 0
+    taskMessage (C.Result (ExitFailure n)) = IOFinished n
+    taskMessage x@(C.ProcessHandle _h) = IOProgress x
+    taskMessage x@(C.Stdout _) = IOProgress x
+    taskMessage x@(C.Stderr _) = IOProgress x
     -- taskMessage x = ProcessToManager x
 
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
 
-deriving instance Show (Chunk Text)
+deriving instance Show (C.Chunk Text)
 
 #if DEBUG
-instance Pretty (V (Chunk Text)) where
-    pPrint (V (Exception e)) = pPrint (V e)
+instance Pretty (V (C.Chunk Text)) where
+    -- pPrint (V (Exception e)) = pPrint (V e)
     pPrint (V x) = text (show x)
 #endif
 
@@ -109,9 +110,9 @@ keyboard = do
 
 -- | The sequence of IO operations that the "t" command will run,
 -- wrapped up to communicate with a task thread.
-ioTasks :: (taskid ~ TID, progress ~ Chunk Text, result ~ ResultType) =>
+ioTasks :: (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
-ioTasks = runIO throwExn : map runProgressIO (countToFive : countToFive' : nekos)
+ioTasks = runIO throwExn : map runProgressIO (countToFive : nekos)
 
 -- | Set up a state monad to manage the allocation of task ids, and to
 -- allow the "t" command to cycle through the list of tasks to be run.
@@ -122,36 +123,31 @@ main = manager (`evalStateT` (ioTasks, 1)) keyboard output
 throwExn :: IO result
 throwExn = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
 
--- 'readCreateProcess' catches all exceptions and returns them as
--- Chunk values in the output list.  This scans through the chunks
--- throws any exceptions it finds.  (This needs to send a task cancelled
--- message.)  (This seems to be strict, why?)
-throwChunks :: [Chunk Text] -> IO [Chunk Text]
-throwChunks xs =
-    evalStateT (mapM_ throwChunk xs) Nothing >> return xs
-    where throwChunk :: Chunk Text -> StateT (Maybe ProcessHandle) IO (Chunk Text)
-          throwChunk x@(ProcessHandle h) = put (Just h) >> return x
-          throwChunk (Exception e) = do
-            -- lift (ePutStrLn ("throwChunk " ++ show e))
-            -- Should the ThreadKilled exception just below kill the
-            -- process?  It doesn't seem to, hence this terminateProcess.
-            get >>= maybe (return ()) (lift . terminateProcess)
-            throw e
-          throwChunk x = return x
+-- Because 'readCreateProcess' catches all exceptions and returns them
+-- as Chunk values in the output list, we need this to scans through
+-- the chunks and throw any exceptions it finds.  (This needs to send
+-- a task cancelled message.)  (This seems to be strict, why?)
+{-
+throwChunks :: [C.Chunk Text] -> IO [C.Chunk Text]
+throwChunks xs = evalStateT (mapM throwChunk xs) Nothing
 
-countToFive :: IO [Chunk Text]
+throwChunk :: C.Chunk Text -> StateT (Maybe ProcessHandle) IO (C.Chunk Text)
+throwChunk x@(C.ProcessHandle h) = put (Just h) >> return x
+throwChunk (C.Exception e) = do
+  -- lift (ePutStrLn ("throwChunk " ++ show e))
+  -- Should the ThreadKilled exception just below kill the
+  -- process?  It doesn't seem to, hence this terminateProcess.
+  get >>= maybe (return ()) (lift . terminateProcess)
+  throw e
+throwChunk x = return x
+-}
+
+countToFive :: IO [C.Chunk Text]
 countToFive = readCreateProcess (shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'") mempty
 
--- Re-throw any exceptions that were caught.  If this is killed it
--- gets left in the task map.  After that, manager shutdown blocks.
--- Also, all of the output from this comes out at once.
-countToFive' :: IO [Chunk Text]
-countToFive' = readCreateProcess (shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'") mempty >>=
-               throwChunks
-
-million :: IO [Chunk Text]
+million :: IO [C.Chunk Text]
 million = readCreateProcess (shell $ "yes | head -1000000") mempty
-neko :: String -> Int -> IO [Chunk Text]
-neko color speed = readCreateProcess (proc "oneko" ["-fg", color, "-speed", show speed]) mempty >>= throwChunks
-nekos :: [IO [Chunk Text]]
+neko :: String -> Int -> IO [C.Chunk Text]
+neko color speed = readCreateProcess (proc "oneko" ["-fg", color, "-speed", show speed]) mempty
+nekos :: [IO [C.Chunk Text]]
 nekos = map (uncurry neko) (zip (concat (repeat ["red", "green", "blue", "black", "yellow"])) (concat (repeat [12..18])))

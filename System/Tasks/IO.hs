@@ -30,21 +30,21 @@ runIO io taskTakes =
 runProgressIO :: forall taskid progress result. ProgressAndResult progress result =>
                  IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
 runProgressIO io taskTakes =
-    io >>= mapM_ doChunk
+    -- add state Maybe ProcessHandle and terminate task on exception
+    try (io >>= mapM_ doProgress) >>= either (doTaskMessage . IOException) return
     where
-      doChunk :: progress -> IO ()
-      doChunk x =
-          case (taskMessage x :: IOPuts progress result) of
-            m@IOCancelled ->
-                do -- Notify the manager that the io was cancelled
-                   putMVar taskTakes $ IOToTask m
-                   -- Raise the ThreadKilled exception that was
-                   -- delivered as a chunk.
-                   throw ThreadKilled
-            m@(IOException e) ->
-                do -- Notify the manager that the io was cancelled
-                   putMVar taskTakes $ IOToTask m
-                   throw e
-            m ->
-                do ePutStrLn ("Chunk: " ++ ppDisplay x)
-                   putMVar taskTakes $ IOToTask $ m
+      doProgress :: progress -> IO ()
+      doProgress x = doTaskMessage (taskMessage x :: IOPuts progress result)
+      doTaskMessage m@IOCancelled =
+          do -- Notify the manager that the io was cancelled
+             putMVar taskTakes $ IOToTask m
+             -- Raise the ThreadKilled exception that was
+             -- delivered as a chunk.
+             throw ThreadKilled
+      doTaskMessage m@(IOException e) =
+          do -- Notify the manager that the io was cancelled
+             putMVar taskTakes $ IOToTask m
+             throw e
+      doTaskMessage m =
+          do ePutStrLn ("Chunk: " ++ ppDisplay m)
+             putMVar taskTakes $ IOToTask $ m
