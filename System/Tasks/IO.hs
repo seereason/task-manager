@@ -11,7 +11,7 @@ module System.Tasks.IO
 import Control.Concurrent (MVar, putMVar)
 import Control.Exception (AsyncException(ThreadKilled), fromException, SomeException, throw)
 import Control.Monad.Catch (MonadCatch, try)
-import Control.Monad.State (StateT, get)
+import Control.Monad.State (StateT, evalStateT, get)
 import Control.Monad.Trans (MonadIO, liftIO)
 import System.Process (ProcessHandle, terminateProcess)
 import System.Process.Text.Lazy ()
@@ -32,15 +32,17 @@ runIO io taskTakes =
     try io >>= either (\ e -> putMVar taskTakes (IOToTask (exceptionMessage e)))
                       (\ r -> putMVar taskTakes (IOToTask (IOFinished r)))
 
--- | Run an environment where we can (try to) cancel the computation
--- of a monad.
-class Monad m => MonadCancel m where
-    cancelIO :: m ()
+-- | Monad transformer that runs an environment where we can (try to)
+-- cancel the computation of a monad.
+class Monad m => MonadCancel t m where
+    cancelIO :: t m ()
+    evalCancelIO :: (forall a. t m a -> m a)
 
 -- | If we can access a ProcessHandle we can call terminateProcess to
 -- cancel.
-instance MonadIO m => MonadCancel (StateT (Maybe ProcessHandle) m) where
+instance MonadIO m => MonadCancel (StateT (Maybe ProcessHandle)) m where
     cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
+    evalCancelIO action = evalStateT action Nothing
 
 -- | Run an IO task with progress output.
 runProgressIO :: forall taskid progress result. (ProgressAndResult progress result) =>
@@ -71,14 +73,14 @@ runProgressIO io taskTakes =
              putMVar taskTakes $ IOToTask $ m
 
 -- | Run an IO task with progress output *and* the ability to cancel.
-runCancelIO :: forall m taskid progress result. (MonadIO m, MonadCatch m, ProgressAndResult progress result, MonadCancel m) =>
-                 (forall a. m a -> IO a) -> m [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
-runCancelIO runM io taskTakes =
-    runM $ try (io >>= mapM_ doProgress) >>= either (doTaskMessage . IOException) return
+runCancelIO :: forall m taskid progress result. (MonadIO (m IO), MonadCatch (m IO), ProgressAndResult progress result, MonadCancel m IO) =>
+               m IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
+runCancelIO io taskTakes =
+    evalCancelIO $ try (io >>= mapM_ doProgress) >>= either (doTaskMessage . IOException) return
     where
-      doProgress :: progress -> m ()
+      doProgress :: progress -> m IO ()
       doProgress x = doTaskMessage (taskMessage x :: IOPuts progress result)
-      doTaskMessage :: IOPuts progress result -> m ()
+      doTaskMessage :: IOPuts progress result -> m IO ()
       doTaskMessage m@IOCancelled =
           do liftIO $ putMVar taskTakes $ IOToTask m
              cancelIO     -- Invoke the task's cancel operation

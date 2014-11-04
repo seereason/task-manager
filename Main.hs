@@ -119,7 +119,7 @@ keyboard = do
 -- wrapped up to communicate with a task thread.
 ioTasks :: (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
-ioTasks = runIO throwExn : map (runCancelIO (flip evalStateT Nothing)) (map ioWithHandle (countToFive : nekos))
+ioTasks = runIO throwExn : map runCancelIO (map ioWithHandle (countToFive : nekos))
 
 ioWithHandle :: IO [C.Chunk Text] -> StateT (Maybe ProcessHandle) IO [C.Chunk Text]
 ioWithHandle p = do
