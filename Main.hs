@@ -4,13 +4,13 @@
 import Control.Concurrent (MVar)
 import Control.Exception (fromException, throw, ArithException(LossOfPrecision), AsyncException(ThreadKilled))
 import Control.Monad.State (StateT, get, put, evalStateT)
-import Control.Monad.Trans (lift, liftIO)
+import Control.Monad.Trans (MonadIO, lift, liftIO)
 import Data.Char (isDigit)
 import Data.List (intercalate)
 import Data.Monoid
 import Data.Text.Lazy as Text (Text)
 import System.Exit (ExitCode(ExitSuccess, ExitFailure))
-import System.Process (shell, proc, ProcessHandle)
+import System.Process (shell, proc, ProcessHandle, terminateProcess)
 -- In order for the IO task to be cancellable we need to be able to
 -- intercept the ThreadKilled exception and turn it into an
 -- IOCancelled task message (in the ProgressAndResult instance.)
@@ -20,7 +20,7 @@ import qualified System.Process.ChunkE as C (Chunk(..))
 -- import qualified System.Process.Chunks as C (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
-import System.Tasks (runIO, {-runProgressIO,-} runCancelIO, manager,
+import System.Tasks (runIO, runProgressIO, runCancelIO, manager, MonadCancel(cancelIO, evalCancelIO),
                      TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..),
                      TaskToManager(..), TaskTakes, IOPuts(..))
 
@@ -30,7 +30,6 @@ import Debug.Show (V(V))
 import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 #else
 -- Use hPutStrLn instead of the ePutStrLn in Debug.Console.
-import Control.Monad.Trans (MonadIO)
 import System.IO (hPutStrLn, stderr)
 import System.Tasks (ManagerStatus(..))
 ePutStrLn :: MonadIO m => String -> m ()
@@ -71,6 +70,12 @@ instance ProgressAndResult ProgressType ResultType where
 
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
+
+-- | If we can access a ProcessHandle we can call terminateProcess to
+-- cancel.
+instance MonadIO m => MonadCancel (StateT (Maybe ProcessHandle)) m where
+    cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
+    evalCancelIO action = evalStateT action Nothing
 
 deriving instance Show ProgressType
 
@@ -119,7 +124,7 @@ keyboard = do
 -- wrapped up to communicate with a task thread.
 ioTasks :: (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
-ioTasks = runIO throwExn : map runCancelIO (map ioWithHandle (countToFive : nekos))
+ioTasks = runIO throwExn : runProgressIO countToFive : map runCancelIO (map ioWithHandle nekos)
 
 ioWithHandle :: IO [C.Chunk Text] -> StateT (Maybe ProcessHandle) IO [C.Chunk Text]
 ioWithHandle p = do

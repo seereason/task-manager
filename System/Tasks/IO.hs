@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 module System.Tasks.IO
-    ( MonadCancel(cancelIO)
+    ( MonadCancel(cancelIO, evalCancelIO)
     , runIO
     , runProgressIO
     , runCancelIO
@@ -11,10 +11,7 @@ module System.Tasks.IO
 import Control.Concurrent (MVar, putMVar)
 import Control.Exception (AsyncException(ThreadKilled), fromException, SomeException, throw)
 import Control.Monad.Catch (MonadCatch, try)
-import Control.Monad.State (StateT, evalStateT, get)
 import Control.Monad.Trans (MonadIO, liftIO)
-import System.Process (ProcessHandle, terminateProcess)
-import System.Process.Text.Lazy ()
 import System.Tasks.Types (TaskId, ProgressAndResult(taskMessage), TaskTakes(IOToTask), IOPuts(..))
 
 #if DEBUG
@@ -37,12 +34,6 @@ runIO io taskTakes =
 class Monad m => MonadCancel t m where
     cancelIO :: t m ()
     evalCancelIO :: (forall a. t m a -> m a)
-
--- | If we can access a ProcessHandle we can call terminateProcess to
--- cancel.
-instance MonadIO m => MonadCancel (StateT (Maybe ProcessHandle)) m where
-    cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
-    evalCancelIO action = evalStateT action Nothing
 
 -- | Run an IO task with progress output.
 runProgressIO :: forall taskid progress result. (ProgressAndResult progress result) =>
