@@ -35,11 +35,14 @@ runIO io taskTakes =
 -- cancelIO method can cancel the IO task.
 class Monad taskm => MonadCancel progress cancelt taskm | cancelt -> progress where
     evalCancelIO :: cancelt taskm a -> taskm a
-    -- ^ Run a cancellable IO task
+    -- ^ Add a monad transformer to support cancelling a task.  One
+    -- example of this would be storing a ProcessHandle for a
+    -- subsequent call to terminateProcess.
     cancellable :: taskm [progress] -> cancelt taskm [progress]
-    -- ^ Turn an IO task into a cancellable IO task
+    -- ^ Turn an IO task into a cancellable IO task.  This might
+    -- initialize the monad that evalCancelIO evaluates.
     cancelIO :: cancelt taskm ()
-    -- ^ Cancel this IO task
+    -- ^ Cancel this IO task (e.g. call terminateProcess.)
 
 -- | Run an IO task with progress output.
 runProgressIO :: forall taskid progress result. ProgressAndResult progress result =>
