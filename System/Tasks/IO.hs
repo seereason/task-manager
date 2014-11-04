@@ -1,8 +1,8 @@
-{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GADTs, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeSynonymInstances, UndecidableInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeSynonymInstances, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 module System.Tasks.IO
-    ( MonadCancel(cancelIO, evalCancelIO)
+    ( MonadCancel(cancelIO, evalCancelIO, cancellable)
     , runIO
     , runProgressIO
     , runCancelIO
@@ -30,23 +30,29 @@ runIO io taskTakes =
                       (\ r -> putMVar taskTakes (IOToTask (IOFinished r)))
 
 -- | Monad transformer that runs an environment where we can (try to)
--- cancel the computation of a monad.
-class Monad m => MonadCancel t m where
-    cancelIO :: t m ()
-    evalCancelIO :: (forall a. t m a -> m a)
+-- cancel the computation of a monad.  The cancellable method takes a
+-- stream of progress messages and sets up the environment in which then
+-- cancelIO method can cancel the IO task.
+class Monad taskm => MonadCancel progress cancelt taskm | cancelt -> progress where
+    evalCancelIO :: cancelt taskm a -> taskm a
+    -- ^ Run a cancellable IO task
+    cancellable :: taskm [progress] -> cancelt taskm [progress]
+    -- ^ Turn an IO task into a cancellable IO task
+    cancelIO :: cancelt taskm ()
+    -- ^ Cancel this IO task
 
 -- | Run an IO task with progress output.
-runProgressIO :: forall taskid progress result. (ProgressAndResult progress result) =>
-                  IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
+runProgressIO :: forall taskid progress result. ProgressAndResult progress result =>
+                 IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
 runProgressIO io taskTakes =
     -- Process all the progress messages and then process the
     -- terminating exception (if any.)
     try (io >>= mapM_ doProgress) >>= either (doTaskMessage . IOException) return
     where
       -- Turn progress values into messages to the task manager
-      doProgress :: progress -> IO ()
-      doProgress x = doTaskMessage (taskMessage x :: IOPuts progress result)
-      doTaskMessage :: IOPuts progress result -> IO ()
+      -- doProgress :: progress -> IO ()
+      doProgress x = doTaskMessage (taskMessage x {- :: IOPuts progress result -})
+      -- doTaskMessage :: IOPuts progress result -> IO ()
       doTaskMessage m@IOCancelled =
           do -- Notify the manager that the io was cancelled
              putMVar taskTakes $ IOToTask m
@@ -64,14 +70,19 @@ runProgressIO io taskTakes =
              putMVar taskTakes $ IOToTask $ m
 
 -- | Run an IO task with progress output *and* the ability to cancel.
-runCancelIO :: forall m taskid progress result. (MonadIO (m IO), MonadCatch (m IO), ProgressAndResult progress result, MonadCancel m IO) =>
-               m IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
+runCancelIO :: forall taskid progress result cancelt taskm.
+               (MonadCancel progress cancelt taskm,
+                MonadCatch (cancelt taskm),
+                MonadIO (cancelt taskm),
+                ProgressAndResult progress result) =>
+               cancelt taskm [progress]
+            -> MVar (TaskTakes taskid progress result) -> taskm ()
 runCancelIO io taskTakes =
     evalCancelIO $ try (io >>= mapM_ doProgress) >>= either (doTaskMessage . IOException) return
     where
-      doProgress :: progress -> m IO ()
-      doProgress x = doTaskMessage (taskMessage x :: IOPuts progress result)
-      doTaskMessage :: IOPuts progress result -> m IO ()
+      -- doProgress :: progress -> m IO ()
+      doProgress x = doTaskMessage (taskMessage x {- :: IOPuts progress result -})
+      -- doTaskMessage :: IOPuts progress result -> m IO ()
       doTaskMessage m@IOCancelled =
           do liftIO $ putMVar taskTakes $ IOToTask m
              cancelIO     -- Invoke the task's cancel operation

@@ -20,7 +20,7 @@ import qualified System.Process.ChunkE as C (Chunk(..))
 -- import qualified System.Process.Chunks as C (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
-import System.Tasks (runIO, runProgressIO, runCancelIO, manager, MonadCancel(cancelIO, evalCancelIO),
+import System.Tasks (runIO, runProgressIO, runCancelIO, manager, MonadCancel(cancelIO, evalCancelIO, cancellable),
                      TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..),
                      TaskToManager(..), TaskTakes, IOPuts(..))
 
@@ -71,11 +71,17 @@ instance ProgressAndResult ProgressType ResultType where
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
 
--- | If we can access a ProcessHandle we can call terminateProcess to
--- cancel.
-instance MonadIO m => MonadCancel (StateT (Maybe ProcessHandle)) m where
-    cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
+-- | This instance lets us cancel a running process which outputs a
+-- stream of Chunk Text.  The first element of that stream will
+-- contain a ProcessHandle, which we store in the state monad and use
+-- to terminate the process when cancelIO is called.
+instance MonadIO m => MonadCancel ProgressType (StateT (Maybe ProcessHandle)) m where
     evalCancelIO action = evalStateT action Nothing
+    cancellable p = do
+      (C.ProcessHandle h : chunks) <- lift p
+      put (Just h)
+      return chunks
+    cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
 
 deriving instance Show ProgressType
 
@@ -122,15 +128,12 @@ keyboard = do
 
 -- | The sequence of IO operations that the "t" command will run,
 -- wrapped up to communicate with a task thread.
-ioTasks :: (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
+ioTasks :: forall taskid progress result. (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
-ioTasks = runIO throwExn : runProgressIO countToFive : map runCancelIO (map ioWithHandle nekos)
-
-ioWithHandle :: IO [C.Chunk Text] -> StateT (Maybe ProcessHandle) IO [C.Chunk Text]
-ioWithHandle p = do
-  (C.ProcessHandle h : chunks) <- liftIO p
-  put (Just h)
-  return chunks
+ioTasks = runIO throwExn : runProgressIO countToFive : map runCancelIO' nekos
+    where
+      runCancelIO' :: IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
+      runCancelIO' = runCancelIO . (cancellable :: IO [progress] -> StateT (Maybe ProcessHandle) IO [progress])
 
 -- | Set up a state monad to manage the allocation of task ids, and to
 -- allow the "t" command to cycle through the list of tasks to be run.
