@@ -41,11 +41,13 @@ import Debug.Show (V)
 import Text.PrettyPrint.HughesPJClass (Pretty)
 class (Eq taskid, Ord taskid, Enum taskid, Show taskid) => TaskId taskid
 class (Show progress, Pretty (V progress), Show result) => ProgressAndResult progress result where
-    taskMessage :: progress -> IOPuts progress result -- ^ Turn a progress value into a message
+    taskMessage :: progress -> IOPuts progress result
+    -- ^ Turn a progress value into a message to the task manager
 #else
 class (Eq taskid, Ord taskid, Enum taskid) => TaskId taskid
 class ProgressAndResult progress result where
     taskMessage :: progress -> IOPuts progress result
+    -- ^ Turn a progress value into a message
 #endif
 
 data ManagerTakes taskid progress result

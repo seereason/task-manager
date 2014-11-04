@@ -37,13 +37,13 @@ that is using the task manager "Top":
 	     |              |
 	     v              |
 	+-----------------------+
-	|        Task N         |  data TaskTakes = ManagerToTask | ProcessToTask
+	|        Task N         |  data TaskTakes = ManagerToTask | IOToTask
 	+-----------------------+
-	     |              ^
-	     |              |
-	TaskToProcess ProcessToTask
-	     |              |
-	     v              |
+	      |             ^
+	  (throwTo,         |
+        terminateProcess) IOPuts
+	      |             |
+	      v             |
 	+-----------------------+
-	|       Process N       |  type ProcessTakes = TaskToProcess
+	|         IO N          |  type IOPuts = IOProgress | IOFinished | IOException | IOCancelled
 	+-----------------------+

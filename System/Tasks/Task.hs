@@ -68,9 +68,8 @@ task taskId managerTakes taskTakes io = do
   case r of
     Left e -> do
 #if DEBUG
-        -- This happens after P2 is cancelled, with BlockedIndefinitelyOnMVar,
-        -- presumably because P2 already received a cancel and isn't taking.
-        -- The process is still putting messages.
+        -- This happens after P2 is cancelled, but this message was already sent
+        -- from inside the loop.
         ePutStrLn ("wait -> " ++ show (V e))
 #endif
         -- Uh, if we already did a wait isn't this thread gone?
@@ -86,7 +85,7 @@ task taskId managerTakes taskTakes io = do
       loop = do
         st <- get
         -- At least one terminating message needs to come from the
-        -- process - TaskFinish, TaskCancelled, TaskException.
+        -- process - IOFinished, IOCancelled, IOException.
         msg <- liftIO $ takeMVar taskTakes
         case msg of
           ManagerToTask (CancelTask _) ->
@@ -97,5 +96,12 @@ task taskId managerTakes taskTakes io = do
           IOToTask m@(IOProgress _) ->
               do liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
                  loop
-          IOToTask m ->
-                    liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+          IOToTask m@(IOFinished _) ->
+              liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+          IOToTask IOCancelled ->
+              return ()
+          IOToTask m@(IOException _) ->
+              -- This exception should have caused the async to finish
+              -- and arrived at the waitCatch above.  It seems to be
+              -- coming here too, I'm not sure why.
+              liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))

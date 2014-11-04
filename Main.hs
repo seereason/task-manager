@@ -2,33 +2,40 @@
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 import Control.Concurrent (MVar)
-import Control.Exception (fromException, AsyncException(ThreadKilled), throw, ArithException(LossOfPrecision))
+import Control.Exception (fromException, throw, ArithException(LossOfPrecision), AsyncException(ThreadKilled))
 import Control.Monad.State (StateT, get, put, evalStateT)
-import Control.Monad.Trans (lift)
+import Control.Monad.Trans (lift, liftIO)
 import Data.Char (isDigit)
 import Data.List (intercalate)
 import Data.Monoid
 import Data.Text.Lazy as Text (Text)
 import System.Exit (ExitCode(ExitSuccess, ExitFailure))
-import System.Process (shell, proc, ProcessHandle, terminateProcess)
-import qualified System.Process.Chunks as C (Chunk(..))
-import qualified System.Process.ChunkE as E (Chunk(..))
+import System.Process (shell, proc, ProcessHandle)
+-- In order for the IO task to be cancellable we need to be able to
+-- intercept the ThreadKilled exception and turn it into an
+-- IOCancelled task message (in the ProgressAndResult instance.)
+-- Therefore, we use the ChunkE module, which delivers exceptions in
+-- the output stream, rather than Chunks which re-throws them.
+import qualified System.Process.ChunkE as C (Chunk(..))
+-- import qualified System.Process.Chunks as C (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
-import System.Tasks (runIO, runProgressIO, manager,
+import System.Tasks (runIO, {-runProgressIO,-} runCancelIO, manager,
                      TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..),
                      TaskToManager(..), TaskTakes, IOPuts(..))
-import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 
 #if DEBUG
 import Debug.Console (ePutStrLn)
 import Debug.Show (V(V))
+import Text.PrettyPrint.HughesPJClass (Pretty(pPrint), text)
 #else
 -- Use hPutStrLn instead of the ePutStrLn in Debug.Console.
-import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Monad.Trans (MonadIO)
 import System.IO (hPutStrLn, stderr)
+import System.Tasks (ManagerStatus(..))
 ePutStrLn :: MonadIO m => String -> m ()
 ePutStrLn = liftIO . hPutStrLn stderr
+deriving instance Show ManagerStatus
 #endif
 
 -- | The type used to identify tasks in this example
@@ -44,17 +51,17 @@ type ProgressType = C.Chunk Text
 --   1. Top (the client of the task manager)
 --   2. Manager (the thread that coordinates all the task)
 --   3. Task (the thread that coordinates a single IO task.)
-type ToTop = TopTakes TID (C.Chunk Text) ResultType
-type ToTask = TaskTakes TID (C.Chunk Text) ResultType
-type ToManager = ManagerTakes TID (C.Chunk Text) ResultType
+type ToTop = TopTakes TID ProgressType ResultType
+type ToTask = TaskTakes TID ProgressType ResultType
+type ToManager = ManagerTakes TID ProgressType ResultType
 
 -- | We must define an instance of ProgressAndResult to be able to
 -- receive progress messages from IO tasks.  The taskMessage method
 -- returns a value of type @IOPuts progress result@, which can easily
 -- be turned into a message to the task wrapper.
-instance ProgressAndResult (C.Chunk Text) ResultType where
-    -- taskMessage (Exception e) | fromException e == Just ThreadKilled = IOCancelled
-    -- taskMessage (Exception e) = IOException e
+instance ProgressAndResult ProgressType ResultType where
+    taskMessage (C.Exception e) | fromException e == Just ThreadKilled = IOCancelled
+    taskMessage (C.Exception e) = IOException e
     taskMessage (C.Result ExitSuccess) = IOFinished 0
     taskMessage (C.Result (ExitFailure n)) = IOFinished n
     taskMessage x@(C.ProcessHandle _h) = IOProgress x
@@ -65,10 +72,10 @@ instance ProgressAndResult (C.Chunk Text) ResultType where
 instance Show ProcessHandle where
     show _ = "<ProcessHandle>"
 
-deriving instance Show (C.Chunk Text)
+deriving instance Show ProgressType
 
 #if DEBUG
-instance Pretty (V (C.Chunk Text)) where
+instance Pretty (V ProgressType) where
     -- pPrint (V (Exception e)) = pPrint (V e)
     pPrint (V x) = text (show x)
 #endif
@@ -112,7 +119,13 @@ keyboard = do
 -- wrapped up to communicate with a task thread.
 ioTasks :: (taskid ~ TID, progress ~ C.Chunk Text, result ~ ResultType) =>
            [MVar (TaskTakes taskid progress result) -> IO ()]
-ioTasks = runIO throwExn : map runProgressIO (countToFive : nekos)
+ioTasks = runIO throwExn : map (runCancelIO (flip evalStateT Nothing)) (map ioWithHandle (countToFive : nekos))
+
+ioWithHandle :: IO [C.Chunk Text] -> StateT (Maybe ProcessHandle) IO [C.Chunk Text]
+ioWithHandle p = do
+  (C.ProcessHandle h : chunks) <- liftIO p
+  put (Just h)
+  return chunks
 
 -- | Set up a state monad to manage the allocation of task ids, and to
 -- allow the "t" command to cycle through the list of tasks to be run.
@@ -122,25 +135,6 @@ main = manager (`evalStateT` (ioTasks, 1)) keyboard output
 -- The remaining definitions are IO tasks the example runs.
 throwExn :: IO result
 throwExn = ePutStrLn "About to throw an exception" >> throw LossOfPrecision
-
--- Because 'readCreateProcess' catches all exceptions and returns them
--- as Chunk values in the output list, we need this to scans through
--- the chunks and throw any exceptions it finds.  (This needs to send
--- a task cancelled message.)  (This seems to be strict, why?)
-{-
-throwChunks :: [C.Chunk Text] -> IO [C.Chunk Text]
-throwChunks xs = evalStateT (mapM throwChunk xs) Nothing
-
-throwChunk :: C.Chunk Text -> StateT (Maybe ProcessHandle) IO (C.Chunk Text)
-throwChunk x@(C.ProcessHandle h) = put (Just h) >> return x
-throwChunk (C.Exception e) = do
-  -- lift (ePutStrLn ("throwChunk " ++ show e))
-  -- Should the ThreadKilled exception just below kill the
-  -- process?  It doesn't seem to, hence this terminateProcess.
-  get >>= maybe (return ()) (lift . terminateProcess)
-  throw e
-throwChunk x = return x
--}
 
 countToFive :: IO [C.Chunk Text]
 countToFive = readCreateProcess (shell $ "bash -c 'echo hello from task 1>&2; for i in " <> intercalate " " (map show ([1..5] :: [Int])) <> "; do echo $i; sleep 1; done'") mempty
