@@ -2,10 +2,10 @@
 {-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
 
 module System.Tasks.IO
-    ( MonadCancel(cancelIO, evalCancelIO, cancellable)
-    , runIO
+    ( runIO
     , runProgressIO
     , runCancelIO
+    , MonadCancel(cancelIO, evalCancelIO, cancellable)
     ) where
 
 import Control.Concurrent (MVar, putMVar)
@@ -24,27 +24,15 @@ exceptionMessage e = case fromException e of
                   Just ThreadKilled -> IOCancelled
                   _ -> IOException e
 
+-- | Given a regular IO action, return a task which sends its result
+-- to the task manager via the supplied MVar.
 runIO :: TaskId taskid => IO result -> MVar (TaskTakes taskid progress result) -> IO ()
 runIO io taskTakes =
     try io >>= either (\ e -> putMVar taskTakes (IOToTask (exceptionMessage e)))
                       (\ r -> putMVar taskTakes (IOToTask (IOFinished r)))
 
--- | Monad transformer that runs an environment where we can (try to)
--- cancel the computation of a monad.  The cancellable method takes a
--- stream of progress messages and sets up the environment in which then
--- cancelIO method can cancel the IO task.
-class Monad taskm => MonadCancel progress cancelt taskm | cancelt -> progress where
-    evalCancelIO :: cancelt taskm a -> taskm a
-    -- ^ Add a monad transformer to support cancelling a task.  One
-    -- example of this would be storing a ProcessHandle for a
-    -- subsequent call to terminateProcess.
-    cancellable :: taskm [progress] -> cancelt taskm [progress]
-    -- ^ Turn an IO task into a cancellable IO task.  This might
-    -- initialize the monad that evalCancelIO evaluates.
-    cancelIO :: cancelt taskm ()
-    -- ^ Cancel this IO task (e.g. call terminateProcess.)
-
--- | Run an IO task with progress output.
+-- | Run an IO task with progress output, and send its progress values
+-- and result to the task manager.
 runProgressIO :: forall taskid progress result. ProgressAndResult progress result =>
                  IO [progress] -> MVar (TaskTakes taskid progress result) -> IO ()
 runProgressIO io taskTakes =
@@ -72,7 +60,8 @@ runProgressIO io taskTakes =
 #endif
              putMVar taskTakes $ IOToTask $ m
 
--- | Run an IO task with progress output *and* the ability to cancel.
+-- | Adds the ability to cancel to 'runProgressIO'.  This is done
+-- using an instance of 'MonadCancel' which must be supplied.
 runCancelIO :: forall taskid progress result cancelt taskm.
                (MonadCancel progress cancelt taskm,
                 MonadCatch (cancelt taskm),
@@ -98,3 +87,18 @@ runCancelIO io taskTakes =
           do ePutStrLn ("Chunk: " ++ ppDisplay m)
 #endif
              liftIO $ putMVar taskTakes $ IOToTask $ m
+
+-- | Monad transformer that runs an environment where we can (try to)
+-- cancel the computation of a monad.  The cancellable method takes a
+-- stream of progress messages and sets up the environment in which then
+-- cancelIO method can cancel the IO task.
+class Monad taskm => MonadCancel progress cancelt taskm | cancelt -> progress where
+    evalCancelIO :: cancelt taskm a -> taskm a
+    -- ^ Add a monad transformer to support cancelling a task.  One
+    -- example of this would be storing a ProcessHandle for a
+    -- subsequent call to terminateProcess.
+    cancellable :: taskm [progress] -> cancelt taskm [progress]
+    -- ^ Turn an IO task into a cancellable IO task.  This might
+    -- initialize the monad that evalCancelIO evaluates.
+    cancelIO :: cancelt taskm ()
+    -- ^ Cancel this IO task (e.g. call terminateProcess.)

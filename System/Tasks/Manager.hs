@@ -1,23 +1,5 @@
 {-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
--- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
--- started, their status can be queried, and they can be cancelled.
---
--- The system has four components:
---
---    1. Top is the external system that wants processes managed
---    2. Manager controls the set of concurrent tasks
---    3. Task controls a single process
---    4. Process is one of the the things that Top wanted managed
---
--- The Manager and each task has is a loop running in an IO thread
--- which receives and handles incoming messages.  The values passed in
--- each thread are named after the component: 'TaskTakes',
--- 'ManagerTakes', and so on.  Inside these types are types describing
--- the specific path the message took: 'ManagerToTask',
--- 'ProcessToTask'.  Within these are specific message types, such as
--- 'ShutDown' or 'SendTaskStatus'.
-
 module System.Tasks.Manager
     ( manager
     ) where
@@ -41,6 +23,24 @@ import Debug.Console (ePutStrLn) -- atomic debug output
 import Control.Concurrent (putMVar, takeMVar)
 #endif
 
+-- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
+-- started, their status can be queried, and they can be cancelled.
+--
+-- The system has four components:
+--
+--    1. Top is the external system that wants processes managed
+--    2. Manager controls the set of concurrent tasks
+--    3. Task controls a single process
+--    4. Process is one of the the things that Top wanted managed
+--
+-- The Manager and each task has is a loop running in an IO thread
+-- which receives and handles incoming messages.  The values passed in
+-- each thread are named after the component: 'TaskTakes',
+-- 'ManagerTakes', and so on.  Inside these types are types describing
+-- the specific path the message took: 'ManagerToTask',
+-- 'ProcessToTask'.  Within these are specific message types, such as
+-- 'ShutDown' or 'SendTaskStatus'.
+
 manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, ProgressAndResult progress result) =>
            (m () -> IO ())    -- ^ Run the monad transformer required by the putter
         -> (m (ManagerTakes taskid progress result))  -- ^ return the next message to send to the task manager
@@ -49,9 +49,7 @@ manager :: forall m taskid progress result. (MonadIO m, TaskId taskid, ProgressA
 manager runner putter taker = do
   topTakes <- newEmptyMVar
   managerTakes <- newEmptyMVar
-  -- Run messages between the task manager and the tasks.  The reason
-  -- I use succ def instead of def is so that the first task will be 1
-  -- rather than 0 if taskid is an Integral.
+  -- Run messages between the task manager and the tasks.
   _ <- async $ managerLoop topTakes managerTakes
   -- Messages coming from the input device.  This will run forever, it
   -- needs to be killed when the task manager is finished.

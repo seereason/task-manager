@@ -1,23 +1,5 @@
 {-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, Rank2Types, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
--- | Create a manager in a thread which will handle a set of tasks.  Tasks can be
--- started, their status can be queried, and they can be cancelled.
---
--- The system has four components:
---
---    1. Top is the external system that wants processes managed
---    2. Manager controls the set of concurrent tasks
---    3. Task controls a single process
---    4. Process is one of the the things that Top wanted managed
---
--- The Manager and each task has is a loop running in an IO thread
--- which receives and handles incoming messages.  The values passed in
--- each thread are named after the component: 'TaskTakes',
--- 'ManagerTakes', and so on.  Inside these types are types describing
--- the specific path the message took: 'ManagerToTask',
--- 'ProcessToTask'.  Within these are specific message types, such as
--- 'ShutDown' or 'SendTaskStatus'.
-
 module System.Tasks.Task
     ( task
     ) where
@@ -47,12 +29,13 @@ data TaskState result
       -- back to the task manager after being started.
       }
 
--- | Manage a single task.  This is a wrapper around a process that
--- can do status inquiries, tell the process to terminate, notice the
--- task has finished and return a message, A task receives TaskInput
--- from the manager and the process, and sends TaskOutput messages
--- back to the manager.  It forks the process into the background so
--- it can receive messages from it and the task coordinator.
+-- | Helper function called by 'System.Tasks.Manager.manager' to run a
+-- single task.  This wraps up the IO operation so that we can do
+-- status inquiries, tell the process to terminate, notice the task
+-- has finished and return a message.  A task receives TaskTakes
+-- messages from the manager and the process, and sends ManagerTakes
+-- messages back to the manager.  It forks the IO operation into the
+-- background so it can receive TaskTakes messages from it.
 task :: forall taskid progress result. (TaskId taskid, ProgressAndResult progress result) =>
         taskid
      -> MVar (ManagerTakes taskid progress result)

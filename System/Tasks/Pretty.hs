@@ -1,3 +1,4 @@
+-- | Pretty printing functions used only when the DEBUG flag is set.
 {-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, ScopedTypeVariables, StandaloneDeriving, TypeFamilies, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -Wall -Werror -fno-warn-orphans #-}
 
