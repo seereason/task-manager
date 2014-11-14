@@ -6,9 +6,6 @@ module System.Tasks.Task
 
 import Control.Concurrent (MVar)
 import Control.Concurrent.Async (Async, async, cancel, waitCatch)
-import Control.Monad.State (StateT, evalStateT, get)
-import Control.Monad.Trans (liftIO)
-import System.Process (ProcessHandle)
 import System.Tasks.Types
 
 -- When DEBUG is set a fairly nice display of all the message passing
@@ -20,14 +17,6 @@ import Debug.Console (ePutStrLn) -- atomic debug output
 #else
 import Control.Concurrent (putMVar, takeMVar)
 #endif
-
-data TaskState result
-    = TaskState
-      { processHandle :: Maybe ProcessHandle
-      , processAsync :: Async ()
-      -- ^ This is not available until the process sends it
-      -- back to the task manager after being started.
-      }
 
 -- | Helper function called by 'System.Tasks.Manager.manager' to run a
 -- single task.  This wraps up the IO operation so that we can do
@@ -46,7 +35,7 @@ task taskId managerTakes taskTakes io = do
   a <- async io
   -- Here we are counting on the task sending at least one message
   -- that results in the loop exiting.
-  evalStateT loop (TaskState {processAsync = a, processHandle = Nothing})
+  loop a
   r <- waitCatch a
   case r of
     Left e -> do
@@ -64,27 +53,25 @@ task taskId managerTakes taskTakes io = do
       -- putMVar managerTakes (TaskToManager (TaskPuts taskId (IOFinished result)))
     where
       -- Read and send messages from the process until we see the final result
-      loop :: StateT (TaskState result) IO ()
-      loop = do
-        st <- get
+      loop :: Async () -> IO ()
+      loop a = do
         -- At least one terminating message needs to come from the
         -- process - IOFinished, IOCancelled, IOException.
-        msg <- liftIO $ takeMVar taskTakes
+        msg <- takeMVar taskTakes
         case msg of
           ManagerToTask (CancelTask _) ->
               do -- This throws a ThreadKilled exception in the io thread.
-                 liftIO $ cancel (processAsync st)
-                 -- liftIO $ maybe (return ()) terminateProcess (processHandle st)
-                 loop
+                 cancel a
+                 loop a
           IOToTask m@(IOProgress _) ->
-              do liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
-                 loop
+              do putMVar managerTakes (TaskToManager (TaskPuts taskId m))
+                 loop a
           IOToTask m@(IOFinished _) ->
-              liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+              putMVar managerTakes (TaskToManager (TaskPuts taskId m))
           IOToTask IOCancelled ->
               return ()
           IOToTask m@(IOException _) ->
               -- This exception should have caused the async to finish
               -- and arrived at the waitCatch above.  It seems to be
               -- coming here too, I'm not sure why.
-              liftIO (putMVar managerTakes (TaskToManager (TaskPuts taskId m)))
+              putMVar managerTakes (TaskToManager (TaskPuts taskId m))
