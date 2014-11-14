@@ -21,7 +21,7 @@ import qualified System.Process.ChunkE as C (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
 import System.Tasks (runIO, runProgressIO, runCancelIO, manager, MonadCancel(cancelIO, evalCancelIO, cancellable),
-                     TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes(..), ManagerToTop(..),
+                     TaskId, ProgressAndResult(taskMessage), ManagerTakes(..), TopToManager(..), ManagerToTask(..), TopTakes, ManagerToTop(..),
                      TaskToManager(..), TaskTakes, IOPuts(..))
 
 #if DEBUG
@@ -94,14 +94,14 @@ instance Pretty (V ProgressType) where
 -- | The output device in this example just sends the messages it
 -- receives to the console.
 output :: ToTop -> IO ()
-output (TopTakes ManagerFinished) = ePutStrLn "ManagerFinished"
-output (TopTakes (ManagerStatus tasks status)) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
-output (TopTakes (NoSuchTask taskid)) = ePutStrLn $ show taskid ++ ": NoSuchTask"
-output (TopTakes (TaskStatus taskid status)) = ePutStrLn $ show taskid ++ ": TaskStatus " ++ show status
-output (TopTakes (TaskToTop (TaskPuts taskid IOCancelled))) = ePutStrLn $ show taskid ++ ": IOCancelled"
-output (TopTakes (TaskToTop (TaskPuts taskid (IOException e)))) = ePutStrLn $ show taskid ++ ": IOException " ++ show e
-output (TopTakes (TaskToTop (TaskPuts taskid (IOFinished result)))) = ePutStrLn $ show taskid ++ ": IOFinished " ++ show result
-output (TopTakes (TaskToTop (TaskPuts taskid (IOProgress chunk)))) = ePutStrLn $ show taskid ++ ": IOProgress " ++ show chunk
+output ManagerFinished = ePutStrLn "ManagerFinished"
+output (ManagerStatus tasks status) = ePutStrLn $ "ManagerStatus " ++ show tasks ++ " " ++ show status
+output (NoSuchTask taskid) = ePutStrLn $ show taskid ++ ": NoSuchTask"
+output (TaskStatus taskid status) = ePutStrLn $ show taskid ++ ": TaskStatus " ++ show status
+output (TaskToTop (TaskPuts taskid IOCancelled)) = ePutStrLn $ show taskid ++ ": IOCancelled"
+output (TaskToTop (TaskPuts taskid (IOException e))) = ePutStrLn $ show taskid ++ ": IOException " ++ show e
+output (TaskToTop (TaskPuts taskid (IOFinished result))) = ePutStrLn $ show taskid ++ ": IOFinished " ++ show result
+output (TaskToTop (TaskPuts taskid (IOProgress chunk))) = ePutStrLn $ show taskid ++ ": IOProgress " ++ show chunk
 
 -- | The input device maps several keyboard inputs to messages that
 -- will be sent to the task manager.

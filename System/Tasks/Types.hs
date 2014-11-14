@@ -14,7 +14,7 @@ module System.Tasks.Types
     -- * Message types by recipient
     , TaskTakes(..)
     , ManagerTakes(..)
-    , TopTakes(..)
+    , TopTakes
     ) where
 
 import Control.Concurrent (MVar)
@@ -64,7 +64,7 @@ data TopToManager taskid progress result
     | TopToTask (ManagerToTask taskid)
 
 -- | Type of messages the client receives.
-newtype TopTakes taskid progress result = TopTakes (ManagerToTop taskid progress result)
+type TopTakes taskid progress result = ManagerToTop taskid progress result
 
 -- | Type of messages the manager can send to the client.
 data ManagerToTop taskid progress result
