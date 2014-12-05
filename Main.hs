@@ -16,7 +16,7 @@ import System.Process (shell, proc, ProcessHandle, terminateProcess)
 -- IOCancelled task message (in the ProgressAndResult instance.)
 -- Therefore, we use the ChunkE module, which delivers exceptions in
 -- the output stream, rather than Chunks which re-throws them.
-import qualified System.Process.ChunkE as C (Chunk(..))
+import qualified System.Process.ListLike as C (Chunk(..))
 -- import qualified System.Process.Chunks as C (Chunk(..))
 import System.Process.ListLike (readCreateProcess)
 import System.Process.Text.Lazy ()
