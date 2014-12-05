@@ -33,7 +33,7 @@ Library
                        System.Tasks.Types
   Build-depends:       async, base >= 4 && <5, bytestring, containers, data-default, exceptions, mtl, prettyclass, process, text
   if flag(local-process-extras)
-    Hs-Source-Dirs: ../process-extras/src, ../process-chunk
+    Hs-Source-Dirs: ../process-extras/src
     Build-Depends: deepseq, ListLike
     Exposed-Modules:
       System.Process.ByteString
@@ -51,7 +51,7 @@ Library
       System.Process.Chunks
       System.Process.ChunkE
   else
-    Build-depends: process-extras >= 0.2.1, process-chunk
+    Build-depends: process-listlike >= 1
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease
@@ -65,7 +65,7 @@ Executable test-tasks
     Hs-Source-Dirs: ../process-extras/src
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-extras >= 0.2.1, process-chunk
+    Build-depends: tasks, process-listlike >= 1
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease
