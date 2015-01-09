@@ -51,7 +51,7 @@ Library
       System.Process.Chunks
       System.Process.ChunkE
   else
-    Build-depends: process-listlike >= 1
+    Build-depends: process-extras >= 0.2.0
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease
@@ -65,7 +65,7 @@ Executable test-tasks
     Hs-Source-Dirs: ../process-extras/src
     Build-Depends: deepseq, ListLike
   else
-    Build-depends: tasks, process-listlike >= 1
+    Build-depends: tasks, process-extras >= 0.2.0
   if flag(debug-output)
     CPP-Options: -DDEBUG=1
     Build-depends: showplease
