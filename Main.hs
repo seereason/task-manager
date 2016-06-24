@@ -68,9 +68,6 @@ instance ProgressAndResult ProgressType ResultType where
     taskMessage x@(C.Stderr _) = IOProgress x
     -- taskMessage x = ProcessToManager x
 
-instance Show ProcessHandle where
-    show _ = "<ProcessHandle>"
-
 -- | This instance lets us cancel a running process which outputs a
 -- stream of Chunk Text.  The first element of that stream will
 -- contain a ProcessHandle, which we store in the state monad and use
@@ -82,8 +79,6 @@ instance MonadIO m => MonadCancel ProgressType (StateT (Maybe ProcessHandle)) m 
       put (Just h)
       return chunks
     cancelIO = get >>= \ h -> liftIO (maybe (return ()) terminateProcess h)
-
-deriving instance Show ProgressType
 
 #if DEBUG
 instance Pretty (V ProgressType) where

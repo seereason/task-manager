@@ -31,7 +31,7 @@ Library
                        System.Tasks.Pretty
                        System.Tasks.Task
                        System.Tasks.Types
-  Build-depends:       async, base >= 4 && <5, bytestring, containers, data-default, exceptions, mtl, prettyclass, process, text
+  Build-depends:       async, base >= 4 && <5, bytestring, containers, data-default, exceptions, mtl, pretty, process, text
   if flag(local-process-extras)
     Hs-Source-Dirs: ../process-extras/src
     Build-Depends: deepseq, ListLike
@@ -60,7 +60,7 @@ Executable test-tasks
   Hs-Source-Dirs: .
   Main-Is: Main.hs
   GHC-Options: -threaded
-  Build-Depends: async, base >= 4, bytestring, containers, data-default, exceptions, mtl, prettyclass, process, tasks, text
+  Build-Depends: async, base >= 4, bytestring, containers, data-default, exceptions, mtl, pretty, process, tasks, text
   if flag(local-process-extras)
     Hs-Source-Dirs: ../process-extras/src
     Build-Depends: deepseq, ListLike
