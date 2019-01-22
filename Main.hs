@@ -3,6 +3,7 @@
 
 import Control.Concurrent (MVar)
 import Control.Exception (fromException, throw, ArithException(LossOfPrecision), AsyncException(ThreadKilled))
+import Control.Monad.Fail (MonadFail)
 import Control.Monad.State (StateT, get, put, evalStateT)
 import Control.Monad.Trans (MonadIO, lift, liftIO)
 import Data.Char (isDigit)
@@ -72,7 +73,7 @@ instance ProgressAndResult ProgressType ResultType where
 -- stream of Chunk Text.  The first element of that stream will
 -- contain a ProcessHandle, which we store in the state monad and use
 -- to terminate the process when cancelIO is called.
-instance MonadIO m => MonadCancel ProgressType (StateT (Maybe ProcessHandle)) m where
+instance (MonadIO m, MonadFail m) => MonadCancel ProgressType (StateT (Maybe ProcessHandle)) m where
     evalCancelIO action = evalStateT action Nothing
     cancellable p = do
       (C.ProcessHandle h : chunks) <- lift p
